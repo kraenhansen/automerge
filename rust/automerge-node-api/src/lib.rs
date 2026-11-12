@@ -353,10 +353,10 @@ impl Automerge {
 impl Automerge {
     /// Kept for compatibility with `automerge-wasm`, where it releases the
     /// document. Here the document is released when it is garbage collected.
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn free(&self) {}
 
-    #[napi(ts_args_type = "value: any")]
+    #[napi(catch_unwind, ts_args_type = "value: any")]
     pub fn init_root_from_hydrate(&mut self, env: &Env, value: Unknown<'_>) -> Result<()> {
         let result = (|| -> std::result::Result<(), InitFromHydrate> {
             let am::hydrate::Value::Map(map) = self.hydrate(env, &value)? else {
@@ -368,7 +368,7 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn anonymize(&mut self, env: &Env) -> Result<Automerge> {
         let doc = self
             .doc
@@ -378,7 +378,7 @@ impl Automerge {
         Ok(self.derived(doc))
     }
 
-    #[napi(js_name = "clone")]
+    #[napi(catch_unwind, js_name = "clone")]
     pub fn clone_doc(&mut self, env: &Env, actor: Option<String>) -> Result<Automerge> {
         let mut automerge = self.derived(self.doc.clone());
         if let Some(s) = actor {
@@ -388,7 +388,7 @@ impl Automerge {
         Ok(automerge)
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn fork(
         &mut self,
         env: &Env,
@@ -410,12 +410,12 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn pending_ops(&self) -> u32 {
         self.doc.pending_ops() as u32
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn commit(&mut self, message: Option<String>, time: Option<f64>) -> Option<String> {
         let mut commit_opts = CommitOptions::default();
         if let Some(message) = message {
@@ -427,7 +427,7 @@ impl Automerge {
         self.doc.commit_with(commit_opts).map(|h| h.to_string())
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn merge(&mut self, env: &Env, other: &mut Automerge) -> Result<Heads> {
         let heads = self
             .doc
@@ -437,12 +437,12 @@ impl Automerge {
         Ok(export_heads(&heads))
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn rollback(&mut self) -> f64 {
         self.doc.rollback() as f64
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn keys(&self, env: &Env, obj: String, heads: Option<Heads>) -> Result<Vec<String>> {
         let result = (|| -> std::result::Result<Vec<String>, Get> {
             let (obj, _) = self.import(&obj)?;
@@ -454,7 +454,7 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn text(&self, env: &Env, obj: String, heads: Option<Heads>) -> Result<String> {
         let result = (|| -> std::result::Result<String, Get> {
             let (obj, _) = self.import(&obj)?;
@@ -466,7 +466,7 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_return_type = "Span[]")]
+    #[napi(catch_unwind, ts_return_type = "Span[]")]
     pub fn spans<'env>(
         &self,
         env: &'env Env,
@@ -492,6 +492,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_args_type = "obj: ObjID, start: number, deleteCount: number, text?: string | Array<Value>"
     )]
     pub fn splice(
@@ -542,7 +543,7 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn update_text(&mut self, env: &Env, obj: String, new_text: String) -> Result<()> {
         let result = (|| -> std::result::Result<(), cerr::UpdateText> {
             let (obj, obj_type) = self.import(&obj)?;
@@ -556,6 +557,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_args_type = "obj: ObjID, args: Span[], config?: UpdateSpansConfig | undefined | null"
     )]
     pub fn update_spans(
@@ -587,7 +589,10 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_args_type = "obj: ObjID, value: Value, datatype?: Datatype")]
+    #[napi(
+        catch_unwind,
+        ts_args_type = "obj: ObjID, value: Value, datatype?: Datatype"
+    )]
     pub fn push(
         &mut self,
         env: &Env,
@@ -605,7 +610,11 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_args_type = "obj: ObjID, value: ObjType", ts_return_type = "ObjID")]
+    #[napi(
+        catch_unwind,
+        ts_args_type = "obj: ObjID, value: ObjType",
+        ts_return_type = "ObjID"
+    )]
     pub fn push_object(&mut self, env: &Env, obj: String, value: Unknown<'_>) -> Result<String> {
         let result = (|| -> std::result::Result<String, InsertObject> {
             let (obj, _) = self.import(&obj)?;
@@ -618,7 +627,10 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_args_type = "obj: ObjID, index: number, value: Value, datatype?: Datatype")]
+    #[napi(
+        catch_unwind,
+        ts_args_type = "obj: ObjID, index: number, value: Value, datatype?: Datatype"
+    )]
     pub fn insert(
         &mut self,
         env: &Env,
@@ -636,7 +648,10 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_args_type = "obj: ObjID, index: number, block: {[key: string]: MaterializeValue}")]
+    #[napi(
+        catch_unwind,
+        ts_args_type = "obj: ObjID, index: number, block: {[key: string]: MaterializeValue}"
+    )]
     pub fn split_block(
         &mut self,
         env: &Env,
@@ -657,7 +672,7 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn join_block(&mut self, env: &Env, obj: String, index: f64) -> Result<()> {
         let result = (|| -> std::result::Result<(), cerr::Block> {
             let (text, _) = self.import(&obj)?;
@@ -667,7 +682,10 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_args_type = "obj: ObjID, index: number, block: {[key: string]: MaterializeValue}")]
+    #[napi(
+        catch_unwind,
+        ts_args_type = "obj: ObjID, index: number, block: {[key: string]: MaterializeValue}"
+    )]
     pub fn update_block(
         &mut self,
         env: &Env,
@@ -688,7 +706,10 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_return_type = "{ [key: string]: MaterializeValue } | null")]
+    #[napi(
+        catch_unwind,
+        ts_return_type = "{ [key: string]: MaterializeValue } | null"
+    )]
     pub fn get_block<'env>(
         &mut self,
         env: &'env Env,
@@ -711,6 +732,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_args_type = "obj: ObjID, index: number, value: ObjType",
         ts_return_type = "ObjID"
     )]
@@ -733,7 +755,10 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_args_type = "obj: ObjID, prop: Prop, value: Value, datatype?: Datatype")]
+    #[napi(
+        catch_unwind,
+        ts_args_type = "obj: ObjID, prop: Prop, value: Value, datatype?: Datatype"
+    )]
     pub fn put(
         &mut self,
         env: &Env,
@@ -752,6 +777,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_args_type = "obj: ObjID, prop: Prop, value: ObjType",
         ts_return_type = "ObjID"
     )]
@@ -775,6 +801,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_args_type = "obj: ObjID, prop: Prop, value: any",
         ts_return_type = "ObjID"
     )]
@@ -797,6 +824,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_args_type = "obj: ObjID, index: number, value: any",
         ts_return_type = "ObjID"
     )]
@@ -821,7 +849,10 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_args_type = "obj: ObjID, index: number, del: number, values: any")]
+    #[napi(
+        catch_unwind,
+        ts_args_type = "obj: ObjID, index: number, del: number, values: any"
+    )]
     pub fn splice_from_hydrate(
         &mut self,
         env: &Env,
@@ -843,7 +874,7 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_args_type = "obj: ObjID, prop: Prop, value: number")]
+    #[napi(catch_unwind, ts_args_type = "obj: ObjID, prop: Prop, value: number")]
     pub fn increment(
         &mut self,
         env: &Env,
@@ -860,6 +891,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_args_type = "obj: ObjID, prop: Prop, heads?: Heads",
         ts_return_type = "Value | undefined"
     )]
@@ -885,6 +917,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_args_type = "obj: ObjID, prop: Prop, heads?: Heads",
         ts_return_type = "FullValue | null"
     )]
@@ -916,7 +949,7 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_return_type = "ObjInfo")]
+    #[napi(catch_unwind, ts_return_type = "ObjInfo")]
     pub fn obj_info<'env>(
         &self,
         env: &'env Env,
@@ -942,6 +975,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_args_type = "obj: ObjID, arg: Prop, heads?: Heads",
         ts_return_type = "FullValueWithId[]"
     )]
@@ -975,12 +1009,13 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn enable_freeze(&mut self, enable: bool) -> bool {
         std::mem::replace(&mut self.freeze, enable)
     }
 
     #[napi(
+        catch_unwind,
         ts_args_type = "datatype: string, construct: Function, deconstruct: (arg: any) => any | undefined"
     )]
     pub fn register_datatype(
@@ -1012,6 +1047,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_generic_types = "Doc",
         ts_args_type = "obj: Doc, meta?: unknown",
         ts_return_type = "Doc"
@@ -1031,6 +1067,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_generic_types = "Doc",
         ts_args_type = "obj: Doc, meta?: unknown",
         ts_return_type = "{ value: Doc; patches: Patch[] }"
@@ -1054,7 +1091,7 @@ impl Automerge {
         Ok(result)
     }
 
-    #[napi(ts_return_type = "Patch[]")]
+    #[napi(catch_unwind, ts_return_type = "Patch[]")]
     pub fn diff_incremental<'env>(&mut self, env: &'env Env) -> Result<Array<'env>> {
         let patches = self.doc.diff_incremental();
         let cache = self.exporter(env)?;
@@ -1064,17 +1101,17 @@ impl Automerge {
             .or_throw(env)
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn update_diff_cursor(&mut self) {
         self.doc.update_diff_cursor();
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn reset_diff_cursor(&mut self) {
         self.doc.reset_diff_cursor();
     }
 
-    #[napi(ts_return_type = "Patch[]")]
+    #[napi(catch_unwind, ts_return_type = "Patch[]")]
     pub fn diff<'env>(
         &mut self,
         env: &'env Env,
@@ -1094,6 +1131,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_args_type = "path: Prop[] | string, before: Heads, after: Heads, options?: DiffOptions",
         ts_return_type = "Patch[]"
     )]
@@ -1120,7 +1158,7 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn isolate(&mut self, env: &Env, heads: Heads) -> Result<()> {
         let heads = common::heads::parse_heads(heads.into_iter().map(Some))
             .map_err(cerr::Isolate::from)
@@ -1129,12 +1167,12 @@ impl Automerge {
         Ok(())
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn integrate(&mut self) {
         self.doc.integrate()
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn length(&self, env: &Env, obj: String, heads: Option<Heads>) -> Result<f64> {
         let result = (|| -> std::result::Result<f64, Get> {
             let (obj, _) = self.import(&obj)?;
@@ -1146,7 +1184,7 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_args_type = "obj: ObjID, prop: Prop")]
+    #[napi(catch_unwind, ts_args_type = "obj: ObjID, prop: Prop")]
     pub fn delete(&mut self, env: &Env, obj: String, prop: Either<String, f64>) -> Result<()> {
         let result = (|| -> std::result::Result<(), Get> {
             let (obj, _) = self.import(&obj)?;
@@ -1156,28 +1194,28 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn save(&mut self) -> Uint8Array {
         Uint8Array::from(self.doc.save())
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn save_incremental(&mut self) -> Uint8Array {
         Uint8Array::from(self.doc.save_incremental())
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn save_since(&mut self, env: &Env, heads: Heads) -> Result<Uint8Array> {
         let heads = common::heads::parse_heads(heads.into_iter().map(Some)).or_throw(env)?;
         Ok(Uint8Array::from(self.doc.save_after(&heads)))
     }
 
-    #[napi(js_name = "saveNoCompress")]
+    #[napi(catch_unwind, js_name = "saveNoCompress")]
     pub fn save_nocompress(&mut self) -> Uint8Array {
         Uint8Array::from(self.doc.save_nocompress())
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn save_and_verify(&mut self, env: &Env) -> Result<Uint8Array> {
         let bytes = self
             .doc
@@ -1187,7 +1225,7 @@ impl Automerge {
         Ok(Uint8Array::from(bytes))
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn load_incremental(&mut self, env: &Env, data: Uint8Array) -> Result<f64> {
         let len = self
             .doc
@@ -1197,7 +1235,7 @@ impl Automerge {
         Ok(len as f64)
     }
 
-    #[napi(ts_args_type = "changes: Change[]")]
+    #[napi(catch_unwind, ts_args_type = "changes: Change[]")]
     pub fn apply_changes(&mut self, env: &Env, changes: Vec<Uint8Array>) -> Result<()> {
         let result = (|| -> std::result::Result<(), cerr::ApplyChanges> {
             let changes = changes
@@ -1213,7 +1251,11 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_args_type = "have_deps: Heads", ts_return_type = "Change[]")]
+    #[napi(
+        catch_unwind,
+        ts_args_type = "have_deps: Heads",
+        ts_return_type = "Change[]"
+    )]
     pub fn get_changes(&mut self, env: &Env, have_deps: Heads) -> Result<Vec<Uint8Array>> {
         let deps = common::heads::parse_heads(have_deps.into_iter().map(Some))
             .map_err(Get::from)
@@ -1223,7 +1265,11 @@ impl Automerge {
         ))
     }
 
-    #[napi(ts_args_type = "have_deps: Heads", ts_return_type = "ChangeMetadata[]")]
+    #[napi(
+        catch_unwind,
+        ts_args_type = "have_deps: Heads",
+        ts_return_type = "ChangeMetadata[]"
+    )]
     pub fn get_changes_meta<'env>(
         &mut self,
         env: &'env Env,
@@ -1239,7 +1285,7 @@ impl Automerge {
         Ok(result)
     }
 
-    #[napi(ts_return_type = "Change | null")]
+    #[napi(catch_unwind, ts_return_type = "Change | null")]
     pub fn get_change_by_hash(&mut self, env: &Env, hash: String) -> Result<Option<Uint8Array>> {
         let hash = common::heads::parse_change_hash(Some(&hash)).or_throw(env)?;
         Ok(self
@@ -1248,7 +1294,7 @@ impl Automerge {
             .map(|c| Uint8Array::from(c.raw_bytes().to_vec())))
     }
 
-    #[napi(ts_return_type = "ChangeMetadata | null")]
+    #[napi(catch_unwind, ts_return_type = "ChangeMetadata | null")]
     pub fn get_change_meta_by_hash<'env>(
         &mut self,
         env: &'env Env,
@@ -1261,7 +1307,7 @@ impl Automerge {
         }
     }
 
-    #[napi(ts_return_type = "DecodedChange | null")]
+    #[napi(catch_unwind, ts_return_type = "DecodedChange | null")]
     pub fn get_decoded_change_by_hash<'env>(
         &mut self,
         env: &'env Env,
@@ -1277,7 +1323,7 @@ impl Automerge {
         }
     }
 
-    #[napi(ts_return_type = "Change[]")]
+    #[napi(catch_unwind, ts_return_type = "Change[]")]
     pub fn get_changes_added(&mut self, other: &mut Automerge) -> Vec<Uint8Array> {
         uint8arrays(
             self.doc
@@ -1288,6 +1334,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_args_type = "levels?: FragmentLevelRange",
         ts_return_type = "FragmentMeta[]"
     )]
@@ -1314,7 +1361,7 @@ impl Automerge {
         Ok(result)
     }
 
-    #[napi(ts_return_type = "FragmentMeta | null")]
+    #[napi(catch_unwind, ts_return_type = "FragmentMeta | null")]
     pub fn get_fragment_meta<'env>(
         &mut self,
         env: &'env Env,
@@ -1327,7 +1374,7 @@ impl Automerge {
         }
     }
 
-    #[napi(ts_args_type = "fragments: FragmentMeta[]")]
+    #[napi(catch_unwind, ts_args_type = "fragments: FragmentMeta[]")]
     pub fn bundle_fragment_metadata(
         &mut self,
         env: &Env,
@@ -1344,7 +1391,7 @@ impl Automerge {
         Ok(uint8arrays(self.doc.bundle_fragments(parsed)))
     }
 
-    #[napi(ts_args_type = "commits: Commit[]")]
+    #[napi(catch_unwind, ts_args_type = "commits: Commit[]")]
     pub fn add_commits(&mut self, env: &Env, commits: Vec<Object<'_>>) -> Result<()> {
         let mut changes = Vec::new();
         for (i, c) in commits.iter().enumerate() {
@@ -1380,7 +1427,7 @@ impl Automerge {
             .or_throw(env)
     }
 
-    #[napi(ts_args_type = "fragments: Fragment[]")]
+    #[napi(catch_unwind, ts_args_type = "fragments: Fragment[]")]
     pub fn add_fragments(&mut self, env: &Env, fragments: Vec<Object<'_>>) -> Result<()> {
         let mut bytes = Vec::new();
         for (i, f) in fragments.iter().enumerate() {
@@ -1406,22 +1453,22 @@ impl Automerge {
         Ok(())
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn get_heads(&mut self) -> Heads {
         export_heads(&self.doc.get_heads())
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn get_actor_id(&self) -> String {
         self.doc.get_actor().to_string()
     }
 
-    #[napi(ts_return_type = "Author | null")]
+    #[napi(catch_unwind, ts_return_type = "Author | null")]
     pub fn get_author(&self) -> Option<String> {
         Some(self.doc.get_author()?.to_string())
     }
 
-    #[napi(ts_args_type = "author: string, heads: any")]
+    #[napi(catch_unwind, ts_args_type = "author: string, heads: any")]
     pub fn mask_author(&mut self, env: &Env, author: String, heads: Option<Heads>) -> Result<()> {
         let heads = parse_heads(heads).or_throw(env)?.unwrap_or_default();
         let author = common::actor::parse_author(author).or_throw(env)?;
@@ -1429,20 +1476,20 @@ impl Automerge {
         Ok(())
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn reveal_author(&mut self, env: &Env, author: String) -> Result<()> {
         let author = common::actor::parse_author(author).or_throw(env)?;
         self.doc.reveal_author(&author);
         Ok(())
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn is_author_masked(&self, env: &Env, author: String) -> Result<bool> {
         let author = common::actor::parse_author(author).or_throw(env)?;
         Ok(self.doc.is_author_masked(&author))
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn get_authors(&self) -> Vec<String> {
         self.doc
             .get_authors()
@@ -1451,13 +1498,13 @@ impl Automerge {
             .collect()
     }
 
-    #[napi(ts_return_type = "Author | null")]
+    #[napi(catch_unwind, ts_return_type = "Author | null")]
     pub fn get_author_for_actor(&self, env: &Env, actor: String) -> Result<Option<String>> {
         let actor = common::actor::parse_actor(&actor).or_throw(env)?;
         Ok(self.doc.get_author_for_actor(&actor).map(|a| a.to_string()))
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn get_actors_for_author(&self, env: &Env, author: String) -> Result<Vec<String>> {
         let author = common::actor::parse_author(author).or_throw(env)?;
         Ok(self
@@ -1468,7 +1515,7 @@ impl Automerge {
             .collect())
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn set_author(&mut self, env: &Env, author: Option<String>) -> Result<()> {
         let author = author
             .map(common::actor::parse_author)
@@ -1478,19 +1525,19 @@ impl Automerge {
         Ok(())
     }
 
-    #[napi(ts_return_type = "Change | null")]
+    #[napi(catch_unwind, ts_return_type = "Change | null")]
     pub fn get_last_local_change(&mut self) -> Option<Uint8Array> {
         self.doc
             .get_last_local_change()
             .map(|c| Uint8Array::from(c.raw_bytes().to_vec()))
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn dump(&mut self) {
         self.doc.dump()
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn get_missing_deps(&mut self, env: &Env, heads: Option<Heads>) -> Result<Heads> {
         let heads = parse_heads(heads)
             .map_err(Get::from)
@@ -1499,7 +1546,7 @@ impl Automerge {
         Ok(export_heads(&self.doc.get_missing_deps(&heads)))
     }
 
-    #[napi(ts_args_type = "state: SyncState, message: SyncMessage")]
+    #[napi(catch_unwind, ts_args_type = "state: SyncState, message: SyncMessage")]
     pub fn receive_sync_message(
         &mut self,
         env: &Env,
@@ -1517,7 +1564,7 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_return_type = "SyncMessage | null")]
+    #[napi(catch_unwind, ts_return_type = "SyncMessage | null")]
     pub fn generate_sync_message(&mut self, state: &mut SyncState) -> Option<Uint8Array> {
         use automerge::sync::SyncDoc;
         self.doc
@@ -1527,6 +1574,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         js_name = "toJS",
         ts_args_type = "meta: any",
         ts_return_type = "MaterializeValue"
@@ -1547,6 +1595,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_args_type = "obj?: ObjID, heads?: Heads, metadata?: unknown",
         ts_return_type = "MaterializeValue"
     )]
@@ -1576,6 +1625,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_args_type = "obj: ObjID, position: CursorPosition, heads?: Heads, move?: MoveCursor",
         ts_return_type = "Cursor"
     )]
@@ -1615,7 +1665,10 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_args_type = "obj: ObjID, cursor: Cursor, heads?: Heads")]
+    #[napi(
+        catch_unwind,
+        ts_args_type = "obj: ObjID, cursor: Cursor, heads?: Heads"
+    )]
     pub fn get_cursor_position(
         &mut self,
         env: &Env,
@@ -1638,7 +1691,7 @@ impl Automerge {
         result.or_throw(env)
     }
 
-    #[napi(ts_return_type = "Hash")]
+    #[napi(catch_unwind, ts_return_type = "Hash")]
     pub fn empty_change(&mut self, message: Option<String>, time: Option<f64>) -> String {
         let time = time.map(|f| f as i64);
         let options = CommitOptions { message, time };
@@ -1646,6 +1699,7 @@ impl Automerge {
     }
 
     #[napi(
+        catch_unwind,
         ts_args_type = "obj: ObjID, range: MarkRange, name: string, value: Value, datatype?: Datatype"
     )]
     pub fn mark(
@@ -1661,7 +1715,10 @@ impl Automerge {
             .or_throw(env)
     }
 
-    #[napi(ts_args_type = "obj: ObjID, range: MarkRange, name: string")]
+    #[napi(
+        catch_unwind,
+        ts_args_type = "obj: ObjID, range: MarkRange, name: string"
+    )]
     pub fn unmark(
         &mut self,
         env: &Env,
@@ -1674,7 +1731,7 @@ impl Automerge {
             .or_throw(env)
     }
 
-    #[napi(ts_return_type = "Mark[]")]
+    #[napi(catch_unwind, ts_return_type = "Mark[]")]
     pub fn marks<'env>(
         &mut self,
         env: &'env Env,
@@ -1700,7 +1757,7 @@ impl Automerge {
         Ok(result)
     }
 
-    #[napi(ts_return_type = "MarkSet")]
+    #[napi(catch_unwind, ts_return_type = "MarkSet")]
     pub fn marks_at<'env>(
         &mut self,
         env: &'env Env,
@@ -1722,12 +1779,12 @@ impl Automerge {
         cache.export_marks(&marks).or_throw(env)
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn has_our_changes(&mut self, state: &SyncState) -> bool {
         self.doc.has_our_changes(&state.0)
     }
 
-    #[napi(ts_return_type = "Hash[]")]
+    #[napi(catch_unwind, ts_return_type = "Hash[]")]
     pub fn topo_history_traversal(&mut self) -> Vec<String> {
         self.doc
             .get_changes(&[])
@@ -1736,7 +1793,7 @@ impl Automerge {
             .collect()
     }
 
-    #[napi(ts_return_type = "Stats")]
+    #[napi(catch_unwind, ts_return_type = "Stats")]
     pub fn stats<'env>(&mut self, env: &'env Env) -> Result<Object<'env>> {
         let stats = self.doc.stats();
         let mut result = Object::new(env)?;
@@ -1746,7 +1803,7 @@ impl Automerge {
         Ok(result)
     }
 
-    #[napi(ts_args_type = "hashes: any")]
+    #[napi(catch_unwind, ts_args_type = "hashes: any")]
     pub fn save_bundle(&mut self, env: &Env, hashes: Heads) -> Result<Uint8Array> {
         let result = (|| -> std::result::Result<Uint8Array, cerr::SaveBundle> {
             let hashes = common::heads::parse_heads(hashes.into_iter().map(Some))?;
@@ -1860,7 +1917,7 @@ pub struct DiffOptions {
     pub recursive: Option<bool>,
 }
 
-#[napi(js_name = "create")]
+#[napi(catch_unwind, js_name = "create")]
 pub fn init(env: &Env, options: Option<InitOptions>) -> Result<Automerge> {
     let options = options.unwrap_or_default();
     let mut doc = AutoCommit::new_with_encoding(TextEncoding::Utf16CodeUnit);
@@ -1870,7 +1927,7 @@ pub fn init(env: &Env, options: Option<InitOptions>) -> Result<Automerge> {
     Ok(Automerge::from_doc(doc))
 }
 
-#[napi]
+#[napi(catch_unwind)]
 pub fn load(env: &Env, data: Uint8Array, options: Option<LoadOptions>) -> Result<Automerge> {
     let options = options.unwrap_or_default();
     let result = (|| -> std::result::Result<AutoCommit, cerr::Load> {
@@ -1915,7 +1972,7 @@ pub struct ReleaseInfo {
 }
 
 /// The equivalent of `wasmReleaseInfo` in `automerge-wasm`.
-#[napi]
+#[napi(catch_unwind)]
 pub fn release_info() -> ReleaseInfo {
     ReleaseInfo {
         git_head: option_env!("GIT_HEAD").unwrap_or("unknown").to_string(),
@@ -1925,7 +1982,11 @@ pub fn release_info() -> ReleaseInfo {
     }
 }
 
-#[napi(ts_args_type = "change: ChangeToEncode", ts_return_type = "Change")]
+#[napi(
+    catch_unwind,
+    ts_args_type = "change: ChangeToEncode",
+    ts_return_type = "Change"
+)]
 pub fn encode_change(env: &Env, change: Unknown<'_>) -> Result<Uint8Array> {
     let change: am::ExpandedChange = from_json_value(env, &change)?
         .map_err(EncodeChange::from)
@@ -1934,7 +1995,11 @@ pub fn encode_change(env: &Env, change: Unknown<'_>) -> Result<Uint8Array> {
     Ok(Uint8Array::from(change.raw_bytes().to_vec()))
 }
 
-#[napi(ts_args_type = "change: Change", ts_return_type = "DecodedChange")]
+#[napi(
+    catch_unwind,
+    ts_args_type = "change: Change",
+    ts_return_type = "DecodedChange"
+)]
 pub fn decode_change<'env>(env: &'env Env, change: Uint8Array) -> Result<Unknown<'env>> {
     let change = Change::from_bytes(change.to_vec())
         .map_err(DecodeChange::from)
@@ -1943,7 +2008,7 @@ pub fn decode_change<'env>(env: &'env Env, change: Uint8Array) -> Result<Unknown
     to_json_value(env, &change)
 }
 
-#[napi(ts_return_type = "DecodedBundle")]
+#[napi(catch_unwind, ts_return_type = "DecodedBundle")]
 pub fn read_bundle<'env>(env: &'env Env, bundle: Uint8Array) -> Result<Object<'env>> {
     let bundle = automerge::Bundle::try_from(bundle.as_ref())
         .map_err(|e| cerr::ReadBundle(e.to_string()))

@@ -26,7 +26,8 @@
     "typescript": "^5.8.3"
   },
   "napi": {
-    "binaryName": "automerge"
+    "binaryName": "automerge",
+    "dtsHeaderFile": "dts-header.d.ts"
   },
   "scripts": {
     "build": "napi build --release",

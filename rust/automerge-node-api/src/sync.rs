@@ -19,17 +19,17 @@ pub struct SyncState(pub(crate) am::sync::State);
 
 #[napi]
 impl SyncState {
-    #[napi(getter)]
+    #[napi(catch_unwind, getter)]
     pub fn shared_heads(&self) -> Vec<String> {
         export_heads(&self.0.shared_heads)
     }
 
-    #[napi(getter)]
+    #[napi(catch_unwind, getter)]
     pub fn last_sent_heads(&self) -> Vec<String> {
         export_heads(&self.0.last_sent_heads)
     }
 
-    #[napi(setter)]
+    #[napi(catch_unwind, setter)]
     pub fn set_last_sent_heads(&mut self, env: &Env, heads: Vec<String>) -> Result<()> {
         self.0.last_sent_heads =
             common::heads::parse_heads(heads.into_iter().map(Some)).or_throw(env)?;
@@ -37,7 +37,7 @@ impl SyncState {
     }
 
     /// Set the hashes sent to the peer, as an object of `hash: true`.
-    #[napi(setter, ts_args_type = "value: Heads")]
+    #[napi(catch_unwind, setter, ts_args_type = "value: Heads")]
     pub fn set_sent_hashes(&mut self, env: &Env, hashes: Object<'_>) -> Result<()> {
         let mut set = BTreeSet::new();
         for (key, _) in interop::own_entries(env, &hashes)? {
@@ -50,29 +50,29 @@ impl SyncState {
         Ok(())
     }
 
-    #[napi(getter)]
+    #[napi(catch_unwind, getter)]
     pub fn read_only(&self) -> bool {
         self.0.read_only
     }
 
-    #[napi(setter)]
+    #[napi(catch_unwind, setter)]
     pub fn set_read_only(&mut self, read_only: bool) {
         self.0.set_read_only(read_only);
     }
 
-    #[napi(getter)]
+    #[napi(catch_unwind, getter)]
     pub fn peer_read_only(&self) -> bool {
         self.0.is_peer_read_only()
     }
 
-    #[napi(js_name = "clone")]
+    #[napi(catch_unwind, js_name = "clone")]
     pub fn clone_state(&self) -> SyncState {
         SyncState(self.0.clone())
     }
 
     /// Kept for compatibility with `automerge-wasm`, where it releases the
     /// state. Here the state is released when it is garbage collected.
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn free(&self) {}
 }
 
@@ -132,12 +132,12 @@ fn import_haves(
     ))
 }
 
-#[napi(js_name = "initSyncState")]
+#[napi(catch_unwind, js_name = "initSyncState")]
 pub fn init_sync_state() -> SyncState {
     SyncState(am::sync::State::new())
 }
 
-#[napi(ts_return_type = "JsSyncState")]
+#[napi(catch_unwind, ts_return_type = "JsSyncState")]
 pub fn export_sync_state<'env>(env: &'env Env, state: &SyncState) -> Result<Object<'env>> {
     let state = &state.0;
     let opt_heads = |h: &Option<Vec<ChangeHash>>| -> Result<Unknown<'env>> {
@@ -252,19 +252,19 @@ fn import_sync_state_inner(
     })
 }
 
-#[napi(ts_args_type = "state: JsSyncState")]
+#[napi(catch_unwind, ts_args_type = "state: JsSyncState")]
 pub fn import_sync_state(env: &Env, state: Object<'_>) -> Result<SyncState> {
     import_sync_state_inner(env, &state)
         .map(SyncState)
         .or_throw(env)
 }
 
-#[napi]
+#[napi(catch_unwind)]
 pub fn encode_sync_state(state: &SyncState) -> Uint8Array {
     Uint8Array::from(state.0.encode())
 }
 
-#[napi]
+#[napi(catch_unwind)]
 pub fn decode_sync_state(env: &Env, data: Uint8Array) -> Result<SyncState> {
     am::sync::State::decode(&data)
         .map(SyncState)
@@ -330,13 +330,13 @@ fn encode_sync_message_inner(
     })
 }
 
-#[napi(ts_args_type = "message: DecodedSyncMessage")]
+#[napi(catch_unwind, ts_args_type = "message: DecodedSyncMessage")]
 pub fn encode_sync_message(env: &Env, message: Object<'_>) -> Result<Uint8Array> {
     let message = encode_sync_message_inner(env, &message).or_throw(env)?;
     Ok(Uint8Array::from(message.encode()))
 }
 
-#[napi(ts_return_type = "DecodedSyncMessage")]
+#[napi(catch_unwind, ts_return_type = "DecodedSyncMessage")]
 pub fn decode_sync_message<'env>(env: &'env Env, msg: Uint8Array) -> Result<Object<'env>> {
     let msg = Message::decode(&msg)
         .map_err(common::error::DecodeSyncMessage::from)
