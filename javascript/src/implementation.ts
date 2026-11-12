@@ -66,7 +66,7 @@ import type {
   Span,
   DecodedSyncMessage,
   UpdateSpansConfig,
-} from "./wasm_types.js"
+} from "./backend.js"
 export type {
   ChangeMetadata,
   FragmentMeta,
@@ -82,7 +82,7 @@ export type {
   Span,
   SyncMessage,
   UpdateSpansConfig,
-} from "./wasm_types.js"
+} from "./backend.js"
 
 /** @hidden **/
 type API = WasmAPI

@@ -16,14 +16,14 @@ import type {
   Commit,
   Fragment,
   FragmentLevelRange,
-} from "./wasm_types.js"
+} from "./backend.js"
 export type {
   ChangeToEncode,
   FragmentMeta,
   Commit,
   Fragment,
   FragmentLevelRange,
-} from "./wasm_types.js"
+} from "./backend.js"
 import { default as initWasm } from "./wasm_bindgen_output/web/automerge_wasm.js"
 import * as WasmApi from "./wasm_bindgen_output/web/automerge_wasm.js"
 

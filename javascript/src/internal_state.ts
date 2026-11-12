@@ -1,4 +1,4 @@
-import type { Automerge, Heads, ObjID, Patch } from "./wasm_types.js"
+import type { Automerge, Heads, ObjID, Patch } from "./backend.js"
 
 import { CLEAR_CACHE, IS_PROXY, OBJECT_ID, STATE, TRACE } from "./constants.js"
 

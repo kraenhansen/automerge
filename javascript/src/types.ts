@@ -2,7 +2,7 @@ export { Counter } from "./counter.js"
 export { Int, Uint, Float64 } from "./numbers.js"
 
 import { Counter } from "./counter.js"
-import type { Patch } from "./wasm_types.js"
+import type { Patch } from "./backend.js"
 export type {
   ConflictPatch,
   Cursor,
@@ -15,7 +15,7 @@ export type {
   MarkPatch,
   Patch,
   UnmarkPatch,
-} from "./wasm_types.js"
+} from "./backend.js"
 
 export type MarkValue = string | number | null | boolean | Date | Uint8Array
 

@@ -20,7 +20,7 @@ import {
   PutPatch,
   SpliceTextPatch,
   UnmarkPatch,
-} from "./wasm_types.js"
+} from "./backend.js"
 
 export function applyPatch(doc: unknown, patch: Patch) {
   const embeddedBlock = resolveEmbeddedBlock(doc, patch.path)

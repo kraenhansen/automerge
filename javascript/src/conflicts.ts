@@ -1,6 +1,6 @@
 import { Counter, AutomergeValue } from "./types.js"
 import { mapProxy, listProxy } from "./proxies.js"
-import type { Automerge, Prop, ObjID, FullValue } from "./wasm_types.js"
+import type { Automerge, Prop, ObjID, FullValue } from "./backend.js"
 
 export type Conflicts = { [key: string]: AutomergeValue }
 

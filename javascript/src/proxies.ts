@@ -1,5 +1,5 @@
 /* eslint-disable  @typescript-eslint/no-explicit-any */
-import type { Automerge, ObjID, Prop } from "./wasm_types.js"
+import type { Automerge, ObjID, Prop } from "./backend.js"
 
 const MAX_I64 = BigInt("9223372036854775807") // 2n ** 63n - 1n;
 
