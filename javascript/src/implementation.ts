@@ -5,7 +5,6 @@ import {
   validateForBatchInsert,
 } from "./proxies.js"
 export { isImmutableString, isCounter } from "./proxies.js"
-import { STATE } from "./constants.js"
 
 import {
   type AutomergeValue,
@@ -117,6 +116,7 @@ import {
   _clear_cache,
   _trace,
   _obj,
+  _meta,
 } from "./internal_state.js"
 
 export { applyPatch, applyPatches } from "./apply_patches.js"
@@ -1437,7 +1437,7 @@ export function toJS<T>(doc: Doc<T>): T {
 
 export function isAutomerge(doc: unknown): boolean {
   if (typeof doc == "object" && doc !== null) {
-    return getObjectId(doc) === "_root" && !!Reflect.get(doc, STATE)
+    return getObjectId(doc) === "_root" && !!_meta(doc)
   } else {
     return false
   }

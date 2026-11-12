@@ -16,11 +16,40 @@ export interface InternalState<T> {
   patchCallback?: PatchCallback<T>
 }
 
+// The functions in this module are the only place which reads the hidden
+// metadata that the backend (or a change proxy) attaches to document objects.
+// Everything else goes through them so that how this metadata is stored can
+// change per backend without touching the rest of the package.
+
+/**
+ * Return the metadata attached to an Automerge object (a materialised object
+ * or a proxy inside a change callback), or undefined if `value` is not one.
+ *
+ * For document roots this is the full {@link InternalState}, for nested
+ * objects it may only contain the `handle`.
+ */
+export function _meta<T>(
+  value: unknown,
+): Partial<InternalState<T>> | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined
+  }
+  return Reflect.get(value, STATE) as Partial<InternalState<T>> | undefined
+}
+
+/**
+ * Return the backend handle of the document `value` belongs to, or undefined
+ * if `value` is not an Automerge object.
+ */
+export function _handle(value: unknown): Automerge | undefined {
+  return _meta(value)?.handle
+}
+
 export function _state<T>(doc: Doc<T>, checkroot = true): InternalState<T> {
   if (typeof doc !== "object") {
     throw new RangeError("must be the document root")
   }
-  const state = Reflect.get(doc, STATE) as InternalState<T>
+  const state = _meta(doc) as InternalState<T>
   if (
     state === undefined ||
     state == null ||

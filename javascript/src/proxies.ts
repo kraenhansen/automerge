@@ -67,6 +67,7 @@ import {
   TEXT,
 } from "./constants.js"
 import { ImmutableString } from "./immutable_string.js"
+import { _handle, _obj } from "./internal_state.js"
 
 type Target = {
   context: Automerge
@@ -237,10 +238,10 @@ function isSameDocument(val, context) {
     return false
   }
 
-  // this depends on __wbg_ptr being the wasm pointer
-  // a new version of wasm-bindgen will break this
-  // but the tests should expose the break
-  if (val && val[STATE]?.handle?.__wbg_ptr === context.__wbg_ptr) {
+  // Every object materialised from, or proxied over, a document carries the
+  // backend handle of that document, so comparing handles by identity tells
+  // us whether the value came from the same document.
+  if (val && _handle(val) === context) {
     return true
   }
   return false
@@ -575,7 +576,7 @@ function listMethods(target: Target) {
 
         // The only possible match now is if the searchElement is an object already in the
         // automerge document with the same object ID as the value
-        if (searchElement[OBJECT_ID] === value) {
+        if (_obj(searchElement) === value) {
           return i
         }
       }
