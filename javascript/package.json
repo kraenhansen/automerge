@@ -76,7 +76,7 @@
     "check-fmt": "prettier -c .prettierrc --check",
     "fmt": "prettier -c .prettierrc -w",
     "build": "node ./scripts/build.mjs",
-    "test": "ts-mocha --loader=ts-node/esm --experimental-specifier-resolution=node --type-check test/*.ts",
+    "test": "ts-mocha --loader=ts-node/esm --import=./test-backend/select.mjs --experimental-specifier-resolution=node --type-check test/*.ts",
     "packaging-tests": "node packaging_tests/run.mjs",
     "watch-docs": "typedoc src/index.ts --watch --readme none"
   },
