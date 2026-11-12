@@ -1,21 +1,19 @@
 use crate::error::InsertObject;
 use crate::export_cache::CachedObject;
-use crate::value::Datatype;
+use crate::value::{datatype_from_js, datatype_to_js, Datatype};
 use crate::{Automerge, UpdateSpansArgs};
-use am::sync::{ChunkList, MessageFlags, MessageVersion};
+use am::sync::{ChunkList, MessageFlags};
 use automerge as am;
 use automerge::iter::{Span, Spans};
 use automerge::marks::{MarkSet, UpdateSpansConfig};
-use automerge::ReadDoc;
-use automerge::ROOT;
 use automerge::{Change, ChangeHash, ObjType, Prop};
+use automerge_js_common as common;
 use itertools::Itertools;
-use js_sys::{Array, BigInt, Function, JsString, Number, Object, Reflect, Uint8Array};
+use js_sys::{Array, BigInt, Function, JsString, Object, Reflect, Uint8Array};
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Display;
 use std::ops::Deref;
-use std::ops::Range;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -187,21 +185,11 @@ impl TryFrom<JS> for CursorPosition {
 
     fn try_from(value: JS) -> Result<Self, Self::Error> {
         match value.as_f64() {
-            Some(idx) => {
-                if idx < 0f64 {
-                    Ok(CursorPosition::Start)
-                } else {
-                    Ok(CursorPosition::Index(idx as usize))
-                }
-            }
+            Some(idx) => Ok(common::cursor::position_from_number(idx)),
             None => value
                 .as_string()
-                .and_then(|s| match s.as_str() {
-                    "start" => Some(CursorPosition::Start),
-                    "end" => Some(CursorPosition::End),
-                    _ => None,
-                })
-                .ok_or(error::BadCursorPosition),
+                .ok_or(error::BadCursorPosition)
+                .and_then(|s| common::cursor::position_from_str(&s)),
         }
     }
 }
@@ -215,12 +203,8 @@ impl TryFrom<JS> for MoveCursor {
         } else {
             value
                 .as_string()
-                .and_then(|s| match s.as_str() {
-                    "before" => Some(MoveCursor::Before),
-                    "after" => Some(MoveCursor::After),
-                    _ => None,
-                })
                 .ok_or(error::BadMoveCursor)
+                .and_then(|s| common::cursor::parse_move(&s))
         }
     }
 }
@@ -234,14 +218,8 @@ impl TryFrom<JS> for ExpandMark {
         } else {
             value
                 .as_string()
-                .and_then(|s| match s.as_str() {
-                    "before" => Some(ExpandMark::Before),
-                    "after" => Some(ExpandMark::After),
-                    "both" => Some(ExpandMark::Both),
-                    "none" => Some(ExpandMark::None),
-                    _ => None,
-                })
                 .ok_or(error::BadExpand)
+                .and_then(|s| common::marks::parse_expand(&s))
         }
     }
 }
@@ -292,11 +270,7 @@ impl TryFrom<JS> for ChangeHash {
     type Error = error::BadChangeHash;
 
     fn try_from(value: JS) -> Result<Self, Self::Error> {
-        if let Some(s) = value.0.as_string() {
-            Ok(s.parse()?)
-        } else {
-            Err(error::BadChangeHash::NotString)
-        }
+        common::heads::parse_change_hash(value.0.as_string().as_deref())
     }
 }
 
@@ -320,14 +294,7 @@ impl TryFrom<JS> for Vec<ChangeHash> {
             .0
             .dyn_into::<Array>()
             .map_err(|_| error::BadChangeHashes::NotArray)?;
-        let value = value
-            .iter()
-            .enumerate()
-            .map(|(i, v)| {
-                ChangeHash::try_from(JS(v)).map_err(|e| error::BadChangeHashes::BadElem(i, e))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(value)
+        common::heads::parse_heads(value.iter().map(|v| v.as_string()))
     }
 }
 
@@ -409,17 +376,11 @@ impl TryFrom<JS> for am::sync::State {
                 let arr = caps_obj.0.dyn_into::<Array>().map_err(|_| {
                     error::BadSyncState::BadTheirCapabilities(error::BadCapabilities::NotArray)
                 })?;
-                let mut caps = Vec::new();
-                for v in arr.iter() {
-                    if let Some(s) = v.as_string() {
-                        match s.as_str() {
-                            "message-v1" => caps.push(am::sync::Capability::MessageV1),
-                            "message-v2" => caps.push(am::sync::Capability::MessageV2),
-                            "supports-sync-reset" => caps.push(am::sync::Capability::SyncReset),
-                            _ => {}
-                        }
-                    }
-                }
+                let caps = arr
+                    .iter()
+                    .filter_map(|v| v.as_string())
+                    .filter_map(|s| common::sync::parse_capability(&s))
+                    .collect();
                 Some(caps)
             } else {
                 None
@@ -524,14 +485,8 @@ impl TryFrom<JS> for am::sync::Message {
             }
         };
 
-        let version = match js_get(&value.0, "type")?.as_string() {
-            Some(s) => match s.as_str() {
-                "v1" => MessageVersion::V1,
-                "v2" => MessageVersion::V2,
-                _ => MessageVersion::V1,
-            },
-            None => MessageVersion::V1,
-        };
+        let version =
+            common::sync::parse_message_version(js_get(&value.0, "type")?.as_string().as_deref());
 
         let changes_obj = js_get(&value.0, "changes")?;
         if changes_obj.is_undefined() {
@@ -560,7 +515,7 @@ impl TryFrom<JS> for Option<Datatype> {
         if value.0.is_null() || value.0.is_undefined() {
             return Ok(None);
         }
-        Datatype::try_from(value.0).map(Some)
+        datatype_from_js(value.0).map(Some)
     }
 }
 
@@ -630,28 +585,17 @@ impl From<&[am::sync::Capability]> for AR {
     fn from(value: &[am::sync::Capability]) -> Self {
         AR(value
             .iter()
-            .map(|c| match c {
-                automerge::sync::Capability::MessageV1 => JsValue::from_str("message-v1"),
-                automerge::sync::Capability::MessageV2 => JsValue::from_str("message-v2"),
-                automerge::sync::Capability::SyncReset => JsValue::from_str("sync-reset"),
-            })
+            .map(|c| JsValue::from_str(common::sync::capability_name(c)))
             .collect())
     }
 }
 
 impl From<am::sync::MessageFlags> for AR {
     fn from(flags: am::sync::MessageFlags) -> Self {
-        let mut arr = Vec::new();
-        if flags.contains(MessageFlags::SYNC_RESET) {
-            arr.push(JsValue::from_str("sync-reset"));
-        }
-        if flags.contains(MessageFlags::READ_ONLY) {
-            arr.push(JsValue::from_str("read-only"));
-        }
-        if flags.contains(MessageFlags::SUPPORTS_SYNC_RESET) {
-            arr.push(JsValue::from_str("supports-sync-reset"));
-        }
-        AR(arr.into_iter().collect())
+        AR(common::sync::message_flag_names(flags)
+            .into_iter()
+            .map(JsValue::from_str)
+            .collect())
     }
 }
 
@@ -697,20 +641,7 @@ impl TryFrom<JS> for MessageFlags {
             .0
             .dyn_into::<Array>()
             .map_err(|_| error::BadCapabilities::NotArray)?;
-        let mut flags = MessageFlags::new();
-        for (i, v) in value.iter().enumerate() {
-            let as_str = v
-                .as_string()
-                .ok_or(error::BadCapabilities::ElemNotString(i))?;
-            match as_str.as_str() {
-                "message-v1" | "message-v2" => {} // accepted but not bitfield flags
-                "sync-reset" => flags.set(MessageFlags::SYNC_RESET),
-                "read-only" => flags.set(MessageFlags::READ_ONLY),
-                "supports-sync-reset" => flags.set(MessageFlags::SUPPORTS_SYNC_RESET),
-                other => return Err(error::BadCapabilities::ElemNotValid(i, other.to_string())),
-            }
-        }
-        Ok(flags)
+        common::sync::parse_message_flags(value.iter().map(|v| v.as_string()))
     }
 }
 
@@ -874,7 +805,7 @@ pub(crate) fn to_prop(p: JsValue) -> Result<Prop, error::InvalidProp> {
     if let Some(s) = p.as_string() {
         Ok(Prop::Map(s))
     } else if let Some(n) = p.as_f64() {
-        Ok(Prop::Seq(n as usize))
+        Ok(common::obj::number_to_prop(n))
     } else {
         Err(error::InvalidProp)
     }
@@ -999,14 +930,7 @@ pub(crate) fn get_heads(heads: JsValue) -> Result<Option<Vec<ChangeHash>>, error
     let Ok(heads) = heads.dyn_into::<js_sys::Array>() else {
         return Err(error::BadChangeHashes::NotArray);
     };
-    heads
-        .iter()
-        .enumerate()
-        .map(|(i, v)| {
-            ChangeHash::try_from(JS(v)).map_err(|e| error::BadChangeHashes::BadElem(i, e))
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Some)
+    common::heads::parse_heads(heads.iter().map(|v| v.as_string())).map(Some)
 }
 
 #[derive(Clone, Debug)]
@@ -1146,11 +1070,7 @@ pub(crate) fn import_scalar(
             } else if BigInt::is_type_of(value) {
                 Some(bigint_to_scalar(BigInt::from(value.clone()))?)
             } else if let Some(n) = value.as_f64() {
-                if (n.round() >= 1.0) && (n.round() - n).abs() < f64::EPSILON {
-                    Some(am::ScalarValue::Int(n as i64))
-                } else {
-                    Some(am::ScalarValue::F64(n))
-                }
+                Some(common::numbers::number_to_scalar(n))
             } else if let Ok(d) = value.clone().dyn_into::<js_sys::Date>() {
                 Some(am::ScalarValue::Timestamp(d.get_time() as i64))
             } else if let Ok(o) = value.clone().dyn_into::<Uint8Array>() {
@@ -1175,7 +1095,7 @@ impl Automerge {
             match wrapped_value.dyn_into::<Object>() {
                 Ok(o) => {
                     cache.set_raw_data(&o, &raw_value)?;
-                    cache.set_datatype(&o, &datatype.into())?;
+                    cache.set_datatype(&o, &datatype_to_js(datatype))?;
                     Ok(o.into())
                 }
                 Err(val) => match val.dyn_into::<JsString>() {
@@ -1208,7 +1128,7 @@ impl Automerge {
         let inner = cache.get_raw_data(ext_val)?;
 
         let datatype_raw = cache.get_datatype(ext_val)?;
-        let datatype = datatype_raw.clone().try_into();
+        let datatype = datatype_from_js(datatype_raw.clone());
 
         let inner = inner
             .dyn_into::<Object>()
@@ -1305,7 +1225,7 @@ impl Automerge {
         if matches!(datatype, Datatype::Map | Datatype::List) {
             cache.set_raw_object(&value, &JsValue::from(&id.to_string()))?;
         }
-        cache.set_datatype(&value, &datatype.into())?;
+        cache.set_datatype(&value, &datatype_to_js(datatype))?;
         cache.set_meta(&value, meta)?;
         if self.freeze {
             Object::freeze(&value);
@@ -1524,71 +1444,14 @@ impl Automerge {
     }
 
     pub(crate) fn import_str(&self, s: &str) -> Result<(ObjId, am::ObjType), error::ImportObj> {
-        // valid formats are
-        // 123@aabbcc
-        // 123@aabccc/prop1/prop2/prop3
-        // /prop1/prop2/prop3
-        let mut components = s.split('/');
-        let obj = components.next();
-        let (id, obj_type) = if obj == Some("") {
-            (ROOT, am::ObjType::Map)
-        } else {
-            self.doc
-                .import(obj.unwrap_or_default())
-                .map_err(error::ImportObj::BadImport)?
-        };
-        self.import_path(id, obj_type, components)
-            .map_err(|e| error::ImportObj::InvalidPath(s.to_string(), Box::new(e)))
-    }
-
-    pub(crate) fn import_path<'a, I: Iterator<Item = &'a str>>(
-        &self,
-        mut obj: ObjId,
-        mut obj_type: am::ObjType,
-        components: I,
-    ) -> Result<(ObjId, am::ObjType), error::ImportPath> {
-        for (i, prop) in components.enumerate() {
-            if prop.is_empty() {
-                break;
-            }
-            let is_map = matches!(obj_type, am::ObjType::Map | am::ObjType::Table);
-            let val = if is_map {
-                self.doc.get(obj, prop)?
-            } else {
-                let idx = prop
-                    .parse()
-                    .map_err(|_| error::ImportPath::IndexNotInteger(i, prop.to_string()))?;
-                self.doc.get(obj, am::Prop::Seq(idx))?
-            };
-            match val {
-                Some((am::Value::Object(am::ObjType::Map), id)) => {
-                    obj_type = am::ObjType::Map;
-                    obj = id;
-                }
-                Some((am::Value::Object(am::ObjType::Table), id)) => {
-                    obj_type = am::ObjType::Table;
-                    obj = id;
-                }
-                Some((am::Value::Object(am::ObjType::List), id)) => {
-                    obj_type = am::ObjType::List;
-                    obj = id;
-                }
-                Some((am::Value::Object(am::ObjType::Text), id)) => {
-                    obj_type = am::ObjType::Text;
-                    obj = id;
-                }
-                None => return Err(error::ImportPath::NonExistentObject(i, prop.to_string())),
-                _ => return Err(error::ImportPath::NotAnObject),
-            };
-        }
-        Ok((obj, obj_type))
+        common::obj::import_obj(&self.doc, s)
     }
 
     pub(crate) fn import_prop(&self, prop: JsValue) -> Result<Prop, error::InvalidProp> {
         if let Some(s) = prop.as_string() {
             Ok(s.into())
         } else if let Some(n) = prop.as_f64() {
-            Ok((n as usize).into())
+            Ok(common::obj::number_to_prop(n))
         } else {
             Err(error::InvalidProp)
         }
@@ -1631,9 +1494,7 @@ pub(crate) fn alloc(value: &Value<'_>) -> (Datatype, JsValue) {
     }
 }
 
-pub(crate) const SAFE_INT: Range<i64> =
-    (Number::MIN_SAFE_INTEGER as i64)..(Number::MAX_SAFE_INTEGER as i64);
-pub(crate) const SAFE_UINT: Range<u64> = 0..(Number::MIN_SAFE_INTEGER as u64);
+pub(crate) use common::numbers::{SAFE_INT, SAFE_UINT};
 
 pub(crate) fn alloc_scalar(value: &am::ScalarValue) -> (Datatype, JsValue) {
     match value {
@@ -1989,33 +1850,41 @@ pub(super) fn js_val_to_hydrate(
 }
 
 pub(crate) mod error {
-    use automerge::{AutomergeError, LoadChangeError};
+    use automerge::AutomergeError;
     use js_sys::BigInt;
     use wasm_bindgen::JsValue;
 
-    #[derive(Debug, thiserror::Error)]
-    pub enum BadJSChanges {
-        #[error("the changes were not an array of Uint8Array")]
-        ChangesNotArray,
-        #[error("change {0} was not a Uint8Array")]
-        ElemNotUint8Array(usize),
-        #[error("error loading change {0}: {1}")]
-        BadChange(usize, LoadChangeError),
-    }
+    pub(crate) use automerge_js_common::cursor::{BadCursorPosition, BadMoveCursor};
+    pub(crate) use automerge_js_common::heads::{BadChangeHash, BadChangeHashes};
+    pub(crate) use automerge_js_common::marks::BadExpand;
+    pub(crate) use automerge_js_common::obj::{ImportObj, InvalidProp};
+    pub(crate) use automerge_js_common::sync::BadCapabilities;
 
+    /// Wraps an error which is thrown as a string, as `automerge-wasm` has
+    /// always done for these.
     #[derive(Debug, thiserror::Error)]
-    pub enum BadChangeHashes {
-        #[error("the change hashes were not an array of strings")]
-        NotArray,
-        #[error("could not decode hash {0}: {1}")]
-        BadElem(usize, BadChangeHash),
-    }
+    #[error(transparent)]
+    pub struct ThrownAsString<E: std::error::Error>(#[from] pub(crate) E);
 
-    impl From<BadChangeHashes> for JsValue {
-        fn from(e: BadChangeHashes) -> Self {
+    impl<E: std::error::Error> From<ThrownAsString<E>> for JsValue {
+        fn from(e: ThrownAsString<E>) -> Self {
             JsValue::from(e.to_string())
         }
     }
+
+    /// An invalid object ID, thrown as a string prefixed with "invalid object
+    /// ID: ".
+    #[derive(Debug, thiserror::Error)]
+    #[error("invalid object ID: {0}")]
+    pub struct InvalidObjectId(#[from] pub(crate) ImportObj);
+
+    impl From<InvalidObjectId> for JsValue {
+        fn from(e: InvalidObjectId) -> Self {
+            JsValue::from(e.to_string())
+        }
+    }
+
+    pub(crate) use automerge_js_common::error::BadJSChanges;
 
     #[derive(Debug, thiserror::Error)]
     pub enum BadChangeHashSet {
@@ -2027,20 +1896,6 @@ pub(crate) mod error {
         ListProp,
         #[error("unable to parse hash from {0:?}: {1}")]
         BadHash(wasm_bindgen::JsValue, BadChangeHash),
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum BadChangeHash {
-        #[error("change hash was not a string")]
-        NotString,
-        #[error(transparent)]
-        Parse(#[from] automerge::ParseChangeHashError),
-    }
-
-    impl From<BadChangeHash> for JsValue {
-        fn from(e: BadChangeHash) -> Self {
-            JsValue::from(e.to_string())
-        }
     }
 
     #[derive(Debug, thiserror::Error)]
@@ -2232,53 +2087,8 @@ pub(crate) mod error {
     }
 
     #[derive(Debug, thiserror::Error)]
-    pub enum ImportObj {
-        #[error("obj id was not a string")]
-        NotString,
-        #[error("invalid path {0}: {1}")]
-        InvalidPath(String, Box<ImportPath>),
-        #[error("unable to import object id: {0}")]
-        BadImport(AutomergeError),
-        #[error("error calling data handler for type {0}: {1:?}")]
-        CallDataHandler(String, JsValue),
-    }
-
-    impl From<ImportObj> for JsValue {
-        fn from(e: ImportObj) -> Self {
-            JsValue::from(format!("invalid object ID: {}", e))
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum ImportPath {
-        #[error(transparent)]
-        Automerge(#[from] AutomergeError),
-        #[error("path component {0} ({1}) should be an integer to index a sequence")]
-        IndexNotInteger(usize, String),
-        #[error("path component {0} ({1}) referenced a nonexistent object")]
-        NonExistentObject(usize, String),
-        #[error("path did not refer to an object")]
-        NotAnObject,
-    }
-    #[derive(Debug, thiserror::Error)]
-    #[error("cursor position must be an index (number), 'start' or 'end'")]
-    pub struct BadCursorPosition;
-
-    #[derive(Debug, thiserror::Error)]
-    #[error("move must be 'before' or 'after' - is 'after' by default")]
-    pub struct BadMoveCursor;
-
-    #[derive(Debug, thiserror::Error)]
-    #[error("expand must be 'left', 'right', 'both', or 'none' - is 'right' by default")]
-    pub struct BadExpand;
-
-    #[derive(Debug, thiserror::Error)]
     #[error("argument must be a number")]
     pub struct BadNumber;
-
-    #[derive(Debug, thiserror::Error)]
-    #[error("given property was not a string or integer")]
-    pub struct InvalidProp;
 
     #[derive(Debug, thiserror::Error)]
     #[error("given property was not a string or integer")]
@@ -2287,16 +2097,6 @@ pub(crate) mod error {
     #[derive(thiserror::Error, Debug)]
     #[error("not a Uint8Array")]
     pub struct BadUint8Array;
-
-    #[derive(thiserror::Error, Debug)]
-    pub enum BadCapabilities {
-        #[error("capabilities was not an array")]
-        NotArray,
-        #[error("element {0} was not a string")]
-        ElemNotString(usize),
-        #[error("element {0} was not a valid capability: {1}")]
-        ElemNotValid(usize, String),
-    }
 
     #[derive(thiserror::Error, Debug)]
     pub enum BadChunkList {

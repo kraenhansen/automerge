@@ -1,6 +1,6 @@
 use crate::interop::error;
 use crate::interop::{ExternalTypeConstructor, SAFE_INT, SAFE_UINT};
-use crate::value::Datatype;
+use crate::value::{datatype_to_js, Datatype};
 use crate::Automerge;
 use automerge as am;
 use automerge::ChangeHash;
@@ -222,7 +222,7 @@ impl<'a> ExportCache<'a> {
                 .dyn_into::<Object>()
                 .map_err(|_| error::Export::InvalidDataHandler(datatype.to_string()))?;
             self.set_raw_data(&o, &value)?;
-            self.set_datatype(&o, &datatype.into())?;
+            self.set_datatype(&o, &datatype_to_js(datatype))?;
             Ok(o.into())
         } else {
             Ok(value)

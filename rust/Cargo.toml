@@ -4,6 +4,7 @@ members = [
     "automerge-c",
     "benchmark-battery",
     "automerge-cli",
+    "automerge-js-common",
     "automerge-node-api",
     "automerge-test",
     "automerge-wasm",

@@ -26,7 +26,6 @@
 use am::marks::Mark;
 use am::transaction::CommitOptions;
 use am::transaction::Transactable;
-use am::Author;
 use am::CursorPosition;
 use am::OnPartialLoad;
 use am::ScalarValue;
@@ -35,6 +34,9 @@ use am::VerificationMode;
 use automerge as am;
 use automerge::TextEncoding;
 use automerge::{sync::SyncDoc, AutoCommit, Change, Prop, ReadDoc, Value, ROOT};
+use automerge_js_common as common;
+use common::commit::Commit;
+use common::fragment::FragmentLevelRange;
 use interop::import_scalar;
 use js_sys::Reflect;
 use js_sys::{Array, Function, Object, Uint8Array};
@@ -42,7 +44,6 @@ use serde::ser::Serialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::ops::{Bound, RangeBounds};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -53,7 +54,7 @@ mod value;
 
 use interop::{alloc, get_heads, import_obj, js_get, js_set, to_js_err, to_prop, AR, JS};
 use sync::SyncState;
-use value::Datatype;
+use value::{datatype_to_js, Datatype};
 
 use crate::interop::SubValIter;
 
@@ -455,7 +456,7 @@ impl Automerge {
     pub fn new(actor: Option<String>) -> Result<Automerge, error::BadActorId> {
         let mut doc = AutoCommit::new_with_encoding(TextEncoding::Utf16CodeUnit);
         if let Some(a) = actor {
-            let a = automerge::ActorId::from(hex::decode(a)?.to_vec());
+            let a = common::actor::parse_actor(&a)?;
             doc.set_actor(a);
         }
         Ok(Automerge {
@@ -499,7 +500,7 @@ impl Automerge {
             external_types: self.external_types.clone(),
         };
         if let Some(s) = actor {
-            let actor = automerge::ActorId::from(hex::decode(s)?.to_vec());
+            let actor = common::actor::parse_actor(&s)?;
             automerge.doc.set_actor(actor);
         }
         Ok(automerge)
@@ -525,8 +526,7 @@ impl Automerge {
             external_types: self.external_types.clone(),
         };
         if let Some(s) = actor {
-            let actor =
-                automerge::ActorId::from(hex::decode(s).map_err(error::BadActorId::from)?.to_vec());
+            let actor = common::actor::parse_actor(&s).map_err(common::error::Fork::from)?;
             automerge.doc.set_actor(actor);
         }
         Ok(automerge)
@@ -664,13 +664,13 @@ impl Automerge {
     ) -> Result<(), error::UpdateText> {
         let (obj, obj_type) = self.import(obj)?;
         if !matches!(obj_type, am::ObjType::Text) {
-            return Err(error::UpdateText::ObjectNotText);
+            return Err(common::error::UpdateText::ObjectNotText.into());
         }
         if let Some(t) = new_text.as_string() {
             self.doc.update_text(&obj, t)?;
             Ok(())
         } else {
-            Err(error::UpdateText::ValueNotString)
+            Err(common::error::UpdateText::ValueNotString.into())
         }
     }
 
@@ -757,7 +757,7 @@ impl Automerge {
         let block_id = self.doc.split_block(&obj, index as usize)?;
         let hydrate = match interop::js_val_to_hydrate(self, block) {
             Ok(val @ am::hydrate::Value::Map(_)) => val,
-            _ => return Err(error::SplitBlock::InvalidArgs),
+            _ => return Err(common::error::SplitBlock::InvalidArgs.into()),
         };
 
         self.doc.update_object(&block_id, &hydrate)?;
@@ -981,7 +981,9 @@ impl Automerge {
     ) -> Result<(), error::Increment> {
         let (obj, _) = self.import(obj)?;
         let prop = self.import_prop(prop)?;
-        let value: f64 = value.as_f64().ok_or(error::Increment::ValueNotNumeric)?;
+        let value: f64 = value
+            .as_f64()
+            .ok_or(common::error::Increment::ValueNotNumeric)?;
         self.doc.increment(&obj, prop, value as i64)?;
         Ok(())
     }
@@ -1039,7 +1041,7 @@ impl Automerge {
                     (Value::Scalar(_), _) => {
                         let result = Array::new();
                         let (datatype, value) = alloc(&value.0);
-                        result.push(&datatype.into());
+                        result.push(&datatype_to_js(datatype));
                         result.push(&value);
                         Ok(result.into())
                     }
@@ -1088,7 +1090,7 @@ impl Automerge {
             for (value, id) in values {
                 let sub = Array::new();
                 let (datatype, js_value) = alloc(&value);
-                sub.push(&datatype.into());
+                sub.push(&datatype_to_js(datatype));
                 if value.is_scalar() {
                     sub.push(&js_value);
                 }
@@ -1124,7 +1126,7 @@ impl Automerge {
         )]
         import_function: JsValue,
     ) -> Result<(), value::InvalidDatatype> {
-        let datatype = Datatype::try_from(datatype)?;
+        let datatype = value::datatype_from_js(datatype)?;
         let Ok(export_function) = export_function.dyn_into::<Function>() else {
             self.external_types.remove(&datatype);
             return Ok(());
@@ -1271,7 +1273,7 @@ impl Automerge {
         #[wasm_bindgen(unchecked_param_type = "Heads")] heads: JsValue,
     ) -> Result<(), error::Isolate> {
         let Some(heads) = get_heads(heads)? else {
-            return Err(error::Isolate::NoHeads);
+            return Err(common::error::Isolate::NoHeads.into());
         };
 
         self.doc.isolate(&heads);
@@ -1318,7 +1320,7 @@ impl Automerge {
     pub fn save_since(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Heads")] heads: JsValue,
-    ) -> Result<Uint8Array, interop::error::BadChangeHashes> {
+    ) -> Result<Uint8Array, interop::error::ThrownAsString<interop::error::BadChangeHashes>> {
         let heads = get_heads(heads)?.unwrap_or(Vec::new());
         let bytes = self.doc.save_after(&heads);
         Ok(Uint8Array::from(bytes.as_slice()))
@@ -1386,7 +1388,7 @@ impl Automerge {
     pub fn get_change_by_hash(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Hash")] hash: JsValue,
-    ) -> Result<JsValue, interop::error::BadChangeHash> {
+    ) -> Result<JsValue, interop::error::ThrownAsString<interop::error::BadChangeHash>> {
         let hash = JS(hash).try_into()?;
         let change = self.doc.get_change_by_hash(&hash);
         if let Some(c) = change {
@@ -1400,7 +1402,7 @@ impl Automerge {
     pub fn get_change_meta_by_hash(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Hash")] hash: JsValue,
-    ) -> Result<JsValue, interop::error::BadChangeHash> {
+    ) -> Result<JsValue, interop::error::ThrownAsString<interop::error::BadChangeHash>> {
         let hash = JS(hash).try_into()?;
         let change_meta = self.doc.get_change_meta_by_hash(&hash);
         if let Some(c) = change_meta {
@@ -1441,7 +1443,7 @@ impl Automerge {
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "FragmentLevelRange")] levels: JsValue,
     ) -> Result<Array, error::Fragments> {
-        let levels = JsFragmentLevelRange::try_from(levels)?;
+        let levels = fragment_level_range_from_js(levels)?;
         Ok(self
             .doc
             .fragments(levels)
@@ -1454,7 +1456,7 @@ impl Automerge {
     pub fn get_fragment_meta(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Hash")] head: JsValue,
-    ) -> Result<JsValue, interop::error::BadChangeHash> {
+    ) -> Result<JsValue, interop::error::ThrownAsString<interop::error::BadChangeHash>> {
         let head = JS(head).try_into()?;
         Ok(self
             .doc
@@ -1482,7 +1484,7 @@ impl Automerge {
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Commit[]")] commits: JsValue,
     ) -> Result<(), error::AddCommits> {
-        let commits = Vec::<Commit>::try_from(JS(commits))?;
+        let commits = commits_from_js(JS(commits))?;
         let changes = commits
             .into_iter()
             .map(|commit| commit.into_change())
@@ -1526,22 +1528,24 @@ impl Automerge {
 
     #[wasm_bindgen(js_name = maskAuthor)]
     pub fn mask_author(&mut self, author: String, heads: JsValue) -> Result<(), JsValue> {
-        let heads = get_heads(heads)?.unwrap_or_default();
-        let author = am::Author::try_from(author).map_err(error::BadAuthor::from)?;
+        let heads = get_heads(heads)
+            .map_err(interop::error::ThrownAsString)?
+            .unwrap_or_default();
+        let author = common::actor::parse_author(author).map_err(error::BadAuthor::from)?;
         self.doc.mask_author(author, &heads);
         Ok(())
     }
 
     #[wasm_bindgen(js_name = revealAuthor)]
     pub fn reveal_author(&mut self, author: String) -> Result<(), JsValue> {
-        let author = am::Author::try_from(author).map_err(error::BadAuthor::from)?;
+        let author = common::actor::parse_author(author).map_err(error::BadAuthor::from)?;
         self.doc.reveal_author(&author);
         Ok(())
     }
 
     #[wasm_bindgen(js_name = isAuthorMasked)]
     pub fn is_author_masked(&self, author: String) -> Result<bool, JsValue> {
-        let author = am::Author::try_from(author).map_err(error::BadAuthor::from)?;
+        let author = common::actor::parse_author(author).map_err(error::BadAuthor::from)?;
         Ok(self.doc.is_author_masked(&author))
     }
 
@@ -1556,13 +1560,13 @@ impl Automerge {
 
     #[wasm_bindgen(js_name = getAuthorForActor, unchecked_return_type="Author | null")]
     pub fn get_author_for_actor(&self, actor: String) -> Result<Option<String>, JsValue> {
-        let actor = am::ActorId::from(hex::decode(actor).map_err(error::BadActorId::from)?);
+        let actor = common::actor::parse_actor(&actor).map_err(error::BadActorId::from)?;
         Ok(self.doc.get_author_for_actor(&actor).map(|a| a.to_string()))
     }
 
     #[wasm_bindgen(js_name = getActorsForAuthor, unchecked_return_type="Actor[]")]
     pub fn get_actors_for_author(&self, author: String) -> Result<Array, JsValue> {
-        let author = am::Author::try_from(author).map_err(error::BadAuthor::from)?;
+        let author = common::actor::parse_author(author).map_err(error::BadAuthor::from)?;
         Ok(self
             .doc
             .get_actors_for_author(&author)
@@ -1574,7 +1578,7 @@ impl Automerge {
     #[wasm_bindgen(js_name = setAuthor)]
     pub fn set_author(&mut self, author: Option<String>) -> Result<(), JsValue> {
         let author = author
-            .map(Author::try_from)
+            .map(common::actor::parse_author)
             .transpose()
             .map_err(error::BadAuthor::from)?;
         self.doc.set_author(author);
@@ -1666,14 +1670,14 @@ impl Automerge {
     ) -> Result<String, error::Cursor> {
         let (obj, obj_type) = self.import(obj).unwrap_or((ROOT, am::ObjType::Map));
         if obj_type != am::ObjType::Text {
-            return Err(error::Cursor::InvalidObjType(obj_type));
+            return Err(common::error::Cursor::InvalidObjType(obj_type).into());
         }
 
         let heads = get_heads(heads)?;
 
         let position: CursorPosition = JS(position)
             .try_into()
-            .map_err(|_| error::Cursor::InvalidCursorPosition)?;
+            .map_err(|_| common::error::Cursor::InvalidCursorPosition)?;
 
         // TODO do we want this?
 
@@ -1685,17 +1689,14 @@ impl Automerge {
             None => self.doc.length(&obj),
         };
 
-        let position = match position {
-            CursorPosition::Index(i) if i >= len => CursorPosition::End,
-            _ => position,
-        };
+        let position = common::cursor::clamp_position(position, len);
 
         let cursor = if move_cursor.is_undefined() {
             self.doc.get_cursor(obj, position, heads.as_deref())?
         } else {
             let move_cursor = JS(move_cursor)
                 .try_into()
-                .map_err(|_| error::Cursor::InvalidMoveCursor)?;
+                .map_err(|_| common::error::Cursor::InvalidMoveCursor)?;
 
             self.doc
                 .get_cursor_moving(obj, position, heads.as_deref(), move_cursor)?
@@ -1714,9 +1715,11 @@ impl Automerge {
     ) -> Result<f64, error::Cursor> {
         let (obj, obj_type) = self.import(obj).unwrap_or((ROOT, am::ObjType::Map));
         if obj_type != am::ObjType::Text {
-            return Err(error::Cursor::InvalidObjType(obj_type));
+            return Err(common::error::Cursor::InvalidObjType(obj_type).into());
         }
-        let cursor = cursor.as_string().ok_or(error::Cursor::InvalidCursor)?;
+        let cursor = cursor
+            .as_string()
+            .ok_or(common::error::Cursor::InvalidCursor)?;
         let cursor = am::Cursor::try_from(cursor)?;
         let heads = get_heads(heads)?;
         let position = self
@@ -1782,8 +1785,8 @@ impl Automerge {
     // skip_typescript as we can't type the optional heads paramater
     #[wasm_bindgen(skip_typescript)]
     pub fn marks(&mut self, obj: JsValue, heads: JsValue) -> Result<JsValue, JsValue> {
-        let (obj, _) = self.import(obj)?;
-        let heads = get_heads(heads)?;
+        let (obj, _) = self.import(obj).map_err(interop::error::InvalidObjectId)?;
+        let heads = get_heads(heads).map_err(interop::error::ThrownAsString)?;
         let marks = if let Some(heads) = heads {
             self.doc.marks_at(obj, &heads).map_err(to_js_err)?
         } else {
@@ -1810,8 +1813,8 @@ impl Automerge {
         index: f64,
         heads: JsValue,
     ) -> Result<Object, JsValue> {
-        let (obj, _) = self.import(obj)?;
-        let heads = get_heads(heads)?;
+        let (obj, _) = self.import(obj).map_err(interop::error::InvalidObjectId)?;
+        let heads = get_heads(heads).map_err(interop::error::ThrownAsString)?;
         let marks = self
             .doc
             .get_marks(obj, index as usize, heads.as_deref())
@@ -1878,7 +1881,7 @@ impl Automerge {
         let bundle = self
             .doc
             .bundle(hashes.into_iter())
-            .map_err(error::SaveBundle::DoBundle)?;
+            .map_err(common::error::SaveBundle::DoBundle)?;
         Ok(Uint8Array::from(bundle.bytes()))
     }
 }
@@ -1954,8 +1957,7 @@ pub fn load(data: Uint8Array, options: JsValue) -> Result<Automerge, error::Load
             .text_encoding(TextEncoding::Utf16CodeUnit),
     )?;
     if let Some(s) = actor {
-        let actor =
-            automerge::ActorId::from(hex::decode(s).map_err(error::BadActorId::from)?.to_vec());
+        let actor = common::actor::parse_actor(&s).map_err(common::error::Load::from)?;
         doc.set_actor(actor);
     }
     Ok(Automerge {
@@ -2081,60 +2083,18 @@ pub fn decode_sync_state(data: Uint8Array) -> Result<SyncState, sync::DecodeSync
 
 struct UpdateSpansArgs(Vec<am::iter::Span>);
 
-struct JsFragmentLevelRange {
-    start: usize,
-    end: Option<usize>,
-}
-
-impl RangeBounds<usize> for JsFragmentLevelRange {
-    fn start_bound(&self) -> Bound<&usize> {
-        Bound::Included(&self.start)
+fn fragment_level_range_from_js(
+    value: JsValue,
+) -> Result<FragmentLevelRange, error::BadFragmentLevelRange> {
+    if value.is_undefined() || value.is_null() {
+        return Ok(FragmentLevelRange::all());
     }
-
-    fn end_bound(&self) -> Bound<&usize> {
-        match &self.end {
-            Some(end) => Bound::Excluded(end),
-            None => Bound::Unbounded,
-        }
+    if let Some(level) = value.as_f64() {
+        return Ok(FragmentLevelRange::level(level)?);
     }
-}
-
-impl TryFrom<JsValue> for JsFragmentLevelRange {
-    type Error = error::BadFragmentLevelRange;
-
-    fn try_from(value: JsValue) -> Result<Self, Self::Error> {
-        if value.is_undefined() || value.is_null() {
-            return Ok(Self {
-                start: 0,
-                end: None,
-            });
-        }
-        if let Some(level) = value.as_f64() {
-            let level = js_usize(level).ok_or(error::BadFragmentLevelRange::InvalidNumber)?;
-            return Ok(Self {
-                start: level,
-                end: Some(level + 1),
-            });
-        }
-
-        let start = match js_get(&value, "start")?.0.as_f64() {
-            Some(start) => js_usize(start).ok_or(error::BadFragmentLevelRange::InvalidStart)?,
-            None => 0,
-        };
-        let end = match js_get(&value, "end")?.0.as_f64() {
-            Some(end) => Some(js_usize(end).ok_or(error::BadFragmentLevelRange::InvalidEnd)?),
-            None => None,
-        };
-        Ok(Self { start, end })
-    }
-}
-
-fn js_usize(n: f64) -> Option<usize> {
-    if n.is_finite() && n >= 0.0 && n.fract() == 0.0 {
-        Some(n as usize)
-    } else {
-        None
-    }
+    let start = js_get(&value, "start")?.0.as_f64();
+    let end = js_get(&value, "end")?.0.as_f64();
+    Ok(FragmentLevelRange::range(start, end)?)
 }
 
 fn fragment_to_js(fragment: &am::Fragment) -> JsValue {
@@ -2152,35 +2112,8 @@ fn fragment_to_js(fragment: &am::Fragment) -> JsValue {
     obj
 }
 
-struct Commit {
-    head: am::ChangeHash,
-    parents: Vec<am::ChangeHash>,
-    bytes: Vec<u8>,
-}
-
-impl Commit {
-    fn into_change(self) -> Result<Change, error::BadCommitBytes> {
-        let change = Change::try_from(self.bytes.as_slice())?;
-        // Validate that JS metadata lines up with the supplied bytes. This keeps
-        // Automerge's API shaped like Subduction's addCommits input while still
-        // treating the encoded change as authoritative.
-        if change.hash() != self.head {
-            return Err(error::BadCommitBytes::HeadMismatch {
-                expected: self.head.to_string(),
-                actual: change.hash().to_string(),
-            });
-        }
-        if change.deps() != self.parents.as_slice() {
-            return Err(error::BadCommitBytes::ParentsMismatch);
-        }
-        Ok(change)
-    }
-}
-
-impl TryFrom<JS> for Commit {
-    type Error = error::BadJSCommit;
-
-    fn try_from(value: JS) -> Result<Self, Self::Error> {
+fn commit_from_js(value: JS) -> Result<Commit, error::BadJSCommit> {
+    {
         let head = js_get(&value.0, "head")?
             .try_into()
             .map_err(error::BadJSCommit::BadHead)?;
@@ -2190,7 +2123,7 @@ impl TryFrom<JS> for Commit {
         let bytes = js_get(&value.0, "bytes")?
             .try_into()
             .map_err(error::BadJSCommit::BadBytes)?;
-        Ok(Self {
+        Ok(Commit {
             head,
             parents,
             bytes,
@@ -2198,20 +2131,16 @@ impl TryFrom<JS> for Commit {
     }
 }
 
-impl TryFrom<JS> for Vec<Commit> {
-    type Error = error::BadJSCommits;
-
-    fn try_from(value: JS) -> Result<Self, Self::Error> {
-        let value = value
-            .0
-            .dyn_into::<Array>()
-            .map_err(|_| error::BadJSCommits::NotArray)?;
-        value
-            .iter()
-            .enumerate()
-            .map(|(i, v)| Commit::try_from(JS(v)).map_err(|e| error::BadJSCommits::BadElem(i, e)))
-            .collect()
-    }
+fn commits_from_js(value: JS) -> Result<Vec<Commit>, error::BadJSCommits> {
+    let value = value
+        .0
+        .dyn_into::<Array>()
+        .map_err(|_| error::BadJSCommits::NotArray)?;
+    value
+        .iter()
+        .enumerate()
+        .map(|(i, v)| commit_from_js(JS(v)).map_err(|e| error::BadJSCommits::BadElem(i, e)))
+        .collect()
 }
 
 struct FragmentInput {
@@ -2257,10 +2186,8 @@ impl TryFrom<JS> for am::Fragment {
         let head: am::ChangeHash = js_get(&value.0, "head")?
             .try_into()
             .map_err(error::BadJSFragmentInput::BadHead)?;
-        let level = match js_get(&value.0, "level")?.0.as_f64() {
-            Some(level) => js_usize(level).ok_or(error::BadJSFragmentInput::BadLevel)?,
-            None => return Err(error::BadJSFragmentInput::BadLevel),
-        };
+        let level = common::fragment::parse_fragment_level(js_get(&value.0, "level")?.0.as_f64())
+            .ok_or(error::BadJSFragmentInput::BadLevel)?;
         let boundary = js_get(&value.0, "boundary")?
             .try_into()
             .map_err(error::BadJSFragmentInput::BadBoundary)?;
@@ -2302,10 +2229,10 @@ impl TryFrom<JS> for Vec<am::Fragment> {
 pub fn read_bundle(bundle: Uint8Array) -> Result<JsValue, error::ReadBundle> {
     let bundle_bytes = bundle.to_vec();
     let bundle = automerge::Bundle::try_from(bundle_bytes.as_slice())
-        .map_err(|e| error::ReadBundle(e.to_string()))?;
+        .map_err(|e| common::error::ReadBundle(e.to_string()))?;
     let changes = bundle
         .to_changes()
-        .map_err(|e| error::ReadBundle(e.to_string()))?;
+        .map_err(|e| common::error::ReadBundle(e.to_string()))?;
     let js_changes = changes
         .iter()
         .map(|c| {
@@ -2313,7 +2240,7 @@ pub fn read_bundle(bundle: Uint8Array) -> Result<JsValue, error::ReadBundle> {
             let serializer = serde_wasm_bindgen::Serializer::json_compatible();
             legacy_change
                 .serialize(&serializer)
-                .map_err(|e| error::ReadBundle(e.to_string()))
+                .map_err(|e| common::error::ReadBundle(e.to_string()))
         })
         .collect::<Result<Vec<_>, _>>()?;
     let result = js_sys::Object::new();
@@ -2330,69 +2257,83 @@ pub fn read_bundle(bundle: Uint8Array) -> Result<JsValue, error::ReadBundle> {
 }
 
 pub mod error {
-    use automerge::{AnonymizeError, AutomergeError, ObjType};
+    use automerge::AutomergeError;
     use js_sys::RangeError;
     use wasm_bindgen::JsValue;
 
     use crate::interop::{
         self,
-        error::{BadChangeHash, BadChangeHashes, BadJSChanges, BadUint8Array, GetProp},
+        error::{BadChangeHash, BadChangeHashes, BadUint8Array, GetProp},
     };
+    use automerge_js_common::error as common;
 
-    #[derive(Debug, thiserror::Error)]
-    #[error(transparent)]
-    pub struct Anonymize(#[from] AnonymizeError);
+    /// Defines a wrapper around an error from `automerge-js-common` which is
+    /// thrown as a `RangeError` carrying the error's message.
+    macro_rules! range_error {
+        ($name:ident, $inner:ty) => {
+            #[derive(Debug, thiserror::Error)]
+            #[error(transparent)]
+            pub struct $name(pub $inner);
 
-    impl From<Anonymize> for JsValue {
-        fn from(error: Anonymize) -> Self {
-            RangeError::new(&error.to_string()).into()
-        }
+            impl<T: Into<$inner>> From<T> for $name {
+                fn from(e: T) -> Self {
+                    Self(e.into())
+                }
+            }
+
+            impl From<$name> for JsValue {
+                fn from(e: $name) -> Self {
+                    RangeError::new(&e.to_string()).into()
+                }
+            }
+        };
     }
 
-    #[derive(Debug, thiserror::Error)]
-    #[error("could not parse Actor ID as a hex string: {0}")]
-    pub struct BadActorId(#[from] hex::FromHexError);
+    /// Like `range_error!`, but for errors which are thrown as a plain string.
+    macro_rules! string_error {
+        ($name:ident, $inner:ty) => {
+            #[derive(Debug, thiserror::Error)]
+            #[error(transparent)]
+            pub struct $name(pub $inner);
 
-    impl From<BadActorId> for JsValue {
-        fn from(s: BadActorId) -> Self {
-            RangeError::new(&s.to_string()).into()
-        }
+            impl<T: Into<$inner>> From<T> for $name {
+                fn from(e: T) -> Self {
+                    Self(e.into())
+                }
+            }
+
+            impl From<$name> for JsValue {
+                fn from(e: $name) -> Self {
+                    JsValue::from(e.to_string())
+                }
+            }
+        };
     }
 
-    #[derive(Debug, thiserror::Error)]
-    #[error("could not parse Actor ID as a hex string: {0}")]
-    pub struct BadAuthor(#[from] automerge::error::InvalidAuthor);
-
-    impl From<BadAuthor> for JsValue {
-        fn from(s: BadAuthor) -> Self {
-            RangeError::new(&s.to_string()).into()
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum ApplyChangesError {
-        #[error(transparent)]
-        DecodeChanges(#[from] BadJSChanges),
-        #[error("error applying changes: {0}")]
-        Apply(#[from] AutomergeError),
-    }
-
-    impl From<ApplyChangesError> for JsValue {
-        fn from(e: ApplyChangesError) -> Self {
-            RangeError::new(&e.to_string()).into()
-        }
-    }
+    range_error!(Anonymize, common::Anonymize);
+    range_error!(BadActorId, automerge_js_common::actor::BadActorId);
+    range_error!(BadAuthor, automerge_js_common::actor::BadAuthor);
+    range_error!(ApplyChangesError, common::ApplyChanges);
+    range_error!(Fork, common::Fork);
+    range_error!(Merge, common::Merge);
+    range_error!(Isolate, common::Isolate);
+    range_error!(Load, common::Load);
+    range_error!(Cursor, common::Cursor);
+    range_error!(ReceiveSyncMessage, common::ReceiveSyncMessage);
+    range_error!(BadSyncMessage, common::DecodeSyncMessage);
+    range_error!(UpdateText, common::UpdateText);
+    range_error!(Increment, common::Increment);
+    string_error!(Block, common::Block);
+    range_error!(SplitBlock, common::SplitBlock);
+    range_error!(SaveBundle, common::SaveBundle);
+    range_error!(ReadBundle, common::ReadBundle);
 
     #[derive(Debug, thiserror::Error)]
     pub enum BadFragmentLevelRange {
         #[error("bad fragment level range property: {0}")]
         Prop(#[from] GetProp),
-        #[error("fragment level must be a non-negative integer")]
-        InvalidNumber,
-        #[error("fragment level range start must be a non-negative integer")]
-        InvalidStart,
-        #[error("fragment level range end must be a non-negative integer")]
-        InvalidEnd,
+        #[error(transparent)]
+        Range(#[from] automerge_js_common::fragment::BadFragmentLevelRange),
     }
 
     impl From<BadFragmentLevelRange> for JsValue {
@@ -2433,15 +2374,7 @@ pub mod error {
         BadElem(usize, BadJSCommit),
     }
 
-    #[derive(Debug, thiserror::Error)]
-    pub enum BadCommitBytes {
-        #[error("bad commit bytes: {0}")]
-        Load(#[from] automerge::LoadChangeError),
-        #[error("commit input head mismatch: expected {expected}, actual {actual}")]
-        HeadMismatch { expected: String, actual: String },
-        #[error("commit input parents do not match encoded change dependencies")]
-        ParentsMismatch,
-    }
+    pub use automerge_js_common::commit::BadCommitBytes;
 
     #[derive(Debug, thiserror::Error)]
     pub enum AddCommits {
@@ -2514,32 +2447,6 @@ pub mod error {
     }
 
     #[derive(Debug, thiserror::Error)]
-    pub enum Fork {
-        #[error(transparent)]
-        BadActor(#[from] BadActorId),
-        #[error(transparent)]
-        Automerge(#[from] AutomergeError),
-        #[error(transparent)]
-        BadChangeHashes(#[from] BadChangeHashes),
-    }
-
-    impl From<Fork> for JsValue {
-        fn from(f: Fork) -> Self {
-            RangeError::new(&f.to_string()).into()
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    #[error(transparent)]
-    pub struct Merge(#[from] AutomergeError);
-
-    impl From<Merge> for JsValue {
-        fn from(e: Merge) -> Self {
-            RangeError::new(&e.to_string()).into()
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
     pub enum Get {
         #[error("invalid object ID: {0}")]
         ImportObj(#[from] interop::error::ImportObj),
@@ -2575,26 +2482,6 @@ pub mod error {
 
     impl From<Splice> for JsValue {
         fn from(e: Splice) -> Self {
-            RangeError::new(&e.to_string()).into()
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum UpdateText {
-        #[error("invalid object ID: {0}")]
-        ImportObj(#[from] interop::error::ImportObj),
-        #[error(transparent)]
-        Automerge(#[from] AutomergeError),
-        #[error("object was not a text object")]
-        ObjectNotText,
-        #[error("update_text is only availalbe for the string representation of text objects")]
-        TextRepNotString,
-        #[error("value passed to update_text was not a string")]
-        ValueNotString,
-    }
-
-    impl From<UpdateText> for JsValue {
-        fn from(e: UpdateText) -> Self {
             RangeError::new(&e.to_string()).into()
         }
     }
@@ -2640,26 +2527,6 @@ pub mod error {
     impl From<Insert> for JsValue {
         fn from(e: Insert) -> Self {
             RangeError::new(&e.to_string()).into()
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum Block {
-        #[error("invalid object id: {0}")]
-        ImportObj(#[from] interop::error::ImportObj),
-        #[error("block name must be a string")]
-        InvalidName,
-        #[error("block parents must be an array of strings")]
-        InvalidParents,
-        #[error("invalid cursor")]
-        InvalidCursor,
-        #[error(transparent)]
-        Automerge(#[from] AutomergeError),
-    }
-
-    impl From<Block> for JsValue {
-        fn from(e: Block) -> Self {
-            JsValue::from(e.to_string())
         }
     }
 
@@ -2738,36 +2605,6 @@ pub mod error {
     }
 
     #[derive(Debug, thiserror::Error)]
-    pub enum Increment {
-        #[error("invalid object id: {0}")]
-        ImportObj(#[from] interop::error::ImportObj),
-        #[error(transparent)]
-        InvalidProp(#[from] interop::error::InvalidProp),
-        #[error("value was not numeric")]
-        ValueNotNumeric,
-        #[error(transparent)]
-        Automerge(#[from] AutomergeError),
-    }
-
-    impl From<Increment> for JsValue {
-        fn from(e: Increment) -> Self {
-            RangeError::new(&e.to_string()).into()
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum BadSyncMessage {
-        #[error("could not decode sync message: {0}")]
-        ReadMessage(#[from] automerge::sync::ReadMessageError),
-    }
-
-    impl From<BadSyncMessage> for JsValue {
-        fn from(e: BadSyncMessage) -> Self {
-            RangeError::new(&e.to_string()).into()
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
     pub enum ApplyPatch {
         #[error(transparent)]
         Interop(#[from] interop::error::ApplyPatch),
@@ -2820,20 +2657,6 @@ pub mod error {
     }
 
     #[derive(Debug, thiserror::Error)]
-    pub enum Isolate {
-        #[error("bad heads: {0}")]
-        Heads(#[from] interop::error::BadChangeHashes),
-        #[error("no heads specified")]
-        NoHeads,
-    }
-
-    impl From<Isolate> for JsValue {
-        fn from(e: Isolate) -> Self {
-            RangeError::new(&e.to_string()).into()
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
     pub enum Materialize {
         #[error(transparent)]
         Export(#[from] interop::error::Export),
@@ -2843,58 +2666,6 @@ pub mod error {
 
     impl From<Materialize> for JsValue {
         fn from(e: Materialize) -> Self {
-            RangeError::new(&e.to_string()).into()
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum Cursor {
-        //#[error(transparent)]
-        //Export(#[from] interop::error::Export),
-        #[error("invalid cursor")]
-        InvalidCursor,
-        #[error("invalid position - must be an index, 'start' or 'end'")]
-        InvalidCursorPosition,
-        #[error("invalid move - must be 'before' or 'after'")]
-        InvalidMoveCursor,
-        #[error("cursors only valid on text - obj type: {0}")]
-        InvalidObjType(ObjType),
-        #[error("bad heads: {0}")]
-        Heads(#[from] interop::error::BadChangeHashes),
-        #[error(transparent)]
-        Automerge(#[from] AutomergeError),
-    }
-
-    impl From<Cursor> for JsValue {
-        fn from(e: Cursor) -> Self {
-            RangeError::new(&e.to_string()).into()
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum ReceiveSyncMessage {
-        #[error(transparent)]
-        Decode(#[from] automerge::sync::ReadMessageError),
-        #[error(transparent)]
-        Automerge(#[from] AutomergeError),
-    }
-
-    impl From<ReceiveSyncMessage> for JsValue {
-        fn from(e: ReceiveSyncMessage) -> Self {
-            RangeError::new(&e.to_string()).into()
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum Load {
-        #[error(transparent)]
-        Automerge(#[from] AutomergeError),
-        #[error(transparent)]
-        BadActor(#[from] BadActorId),
-    }
-
-    impl From<Load> for JsValue {
-        fn from(e: Load) -> Self {
             RangeError::new(&e.to_string()).into()
         }
     }
@@ -2947,24 +2718,6 @@ pub mod error {
 
     impl From<Mark> for JsValue {
         fn from(e: Mark) -> Self {
-            RangeError::new(&e.to_string()).into()
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum SplitBlock {
-        #[error("invalid object id: {0}")]
-        ImportObj(#[from] interop::error::ImportObj),
-        #[error("the block value must be a map")]
-        InvalidArgs,
-        #[error(transparent)]
-        Automerge(#[from] AutomergeError),
-        #[error(transparent)]
-        UpdateObject(#[from] automerge::error::UpdateObjectError),
-    }
-
-    impl From<SplitBlock> for JsValue {
-        fn from(e: SplitBlock) -> Self {
             RangeError::new(&e.to_string()).into()
         }
     }
@@ -3040,30 +2793,6 @@ pub mod error {
     impl From<GetDecodedChangeByHash> for JsValue {
         fn from(e: GetDecodedChangeByHash) -> Self {
             RangeError::new(&e.to_string()).into()
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum SaveBundle {
-        #[error(transparent)]
-        BadChangeHashes(#[from] interop::error::BadChangeHashes),
-        #[error("error creating bundle: {0}")]
-        DoBundle(automerge::AutomergeError),
-    }
-
-    impl From<SaveBundle> for JsValue {
-        fn from(e: SaveBundle) -> Self {
-            RangeError::new(&e.to_string()).into()
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    #[error("error parsing bundle: {}", 0)]
-    pub struct ReadBundle(pub(super) String);
-
-    impl From<ReadBundle> for JsValue {
-        fn from(e: ReadBundle) -> Self {
-            RangeError::new(&e.0).into()
         }
     }
 }

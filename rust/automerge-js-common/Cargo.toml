@@ -1,0 +1,17 @@
+[package]
+name = "automerge-js-common"
+description = "Engine-independent logic shared by the JavaScript bindings to automerge"
+repository = "https://github.com/automerge/automerge"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.90.0"
+publish = false
+
+[lib]
+bench = false
+
+[dependencies]
+automerge = { path = "../automerge" }
+hex = "^0.4.3"
+thiserror = "^2.0.12"

@@ -27,7 +27,7 @@ impl SyncState {
     pub fn set_last_sent_heads(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Heads")] heads: JsValue,
-    ) -> Result<(), interop::error::BadChangeHashes> {
+    ) -> Result<(), interop::error::ThrownAsString<interop::error::BadChangeHashes>> {
         let heads: Vec<ChangeHash> = JS(heads).try_into()?;
         self.0.last_sent_heads = heads;
         Ok(())
@@ -72,9 +72,16 @@ impl SyncState {
     }
 }
 
+/// Thrown as a string, as `automerge-wasm` has always done.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
-pub struct DecodeSyncStateErr(#[from] automerge::sync::DecodeStateError);
+pub struct DecodeSyncStateErr(#[from] automerge_js_common::error::DecodeSyncState);
+
+impl From<automerge::sync::DecodeStateError> for DecodeSyncStateErr {
+    fn from(e: automerge::sync::DecodeStateError) -> Self {
+        Self(e.into())
+    }
+}
 
 impl From<DecodeSyncStateErr> for JsValue {
     fn from(e: DecodeSyncStateErr) -> Self {
