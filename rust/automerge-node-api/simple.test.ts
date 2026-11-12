@@ -9,13 +9,16 @@ describe("Automerge", () => {
   });
 
   it("throws on invalid actor", () => {
-    // TODO: The WebAssembly binding throws a RangeError
-    const error = new Error(
-      "could not parse Actor ID as a hex string: Odd number of digits"
+    // Thrown as a RangeError, like the WebAssembly binding does
+    assert.throws(
+      () => {
+        lib.create({ actor: "invalid-actor" });
+      },
+      (err: unknown) =>
+        err instanceof RangeError &&
+        err.message ===
+          "could not parse Actor ID as a hex string: Odd number of digits",
     );
-    assert.throws(() => {
-      lib.create({ actor: "invalid-actor" });
-    }, error);
   });
 
   it("can put", () => {
