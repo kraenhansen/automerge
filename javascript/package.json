@@ -63,6 +63,12 @@
       "import": "./dist/mjs/entrypoints/slim.js",
       "require": "./dist/cjs/slim.cjs"
     },
+    "./node-api": {
+      "types": "./dist/index.d.ts",
+      "node": {
+        "import": "./dist/mjs/entrypoints/node_api.js"
+      }
+    },
     "./automerge.wasm": "./dist/automerge.wasm",
     "./automerge.wasm.base64": {
       "types": "./dist/automerge_wasm_bg_base64.d.ts",
@@ -77,10 +83,12 @@
     "fmt": "prettier -c .prettierrc -w",
     "build": "node ./scripts/build.mjs",
     "test": "ts-mocha --loader=ts-node/esm --import=./test-backend/select.mjs --experimental-specifier-resolution=node --type-check test/*.ts",
+    "test:node-api": "AUTOMERGE_BACKEND=node-api npm test",
     "packaging-tests": "node packaging_tests/run.mjs",
     "watch-docs": "typedoc src/index.ts --watch --readme none"
   },
   "devDependencies": {
+    "@automerge/automerge-node-api": "file:../rust/automerge-node-api",
     "@types/expect": "^24.3.0",
     "@types/mocha": "^10.0.1",
     "@types/node": "^26.1.2",

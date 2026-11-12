@@ -1,0 +1,10 @@
+{
+  "extends": "./mjs.json",
+  "include": ["../src/**/*"],
+  "exclude": [
+    "../dist/**/*",
+    "../node_modules",
+    "../test/**/*",
+    "../src/**/*.deno.ts"
+  ]
+}

@@ -4,7 +4,9 @@
     "../dist/**/*",
     "../node_modules",
     "../test/**/*",
-    "../src/**/*.deno.ts"
+    "../src/**/*.deno.ts",
+    "../src/node_api_backend.ts",
+    "../src/entrypoints/node_api.ts"
   ],
   "compilerOptions": {
     "outDir": "../dist/cjs"

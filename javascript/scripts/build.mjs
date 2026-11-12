@@ -56,7 +56,7 @@ export const JS_GIT_HEAD = "${gitHead}"
   console.log("generated src/generated/release-info.ts")
 }
 
-/** @typedef {"all" | "build-wasm" | "build-wasm-tarball" | "compile-typescript" | "transpile-cjs"} Step */
+/** @typedef {"all" | "build-wasm" | "build-wasm-tarball" | "compile-typescript" | "transpile-cjs" | "compile-node-api"} Step */
 
 const args = parseArgs({
   options: {
@@ -102,6 +102,7 @@ function isStep(stepStr) {
     "build-wasm",
     "build-wasm-tarball",
     "compile-typescript",
+    "compile-node-api",
     "transpile-cjs",
   ].includes(stepStr)
 }
@@ -331,6 +332,25 @@ function copyAndFixupWasm(wasmBuildTarball, gitHead) {
   )
 }
 
+/**
+ * Compile the Node-API entry point (`src/entrypoints/node_api.ts`) into
+ * `dist/mjs`. This is not part of the default build: it needs the typings
+ * that `napi build` generates for `rust/automerge-node-api`, so that crate
+ * must have been built first.
+ */
+function compileNodeApi() {
+  console.log("compiling the node-api entry point")
+  try {
+    execSync("node_modules/.bin/tsc -p config/node_api.json", {
+      cwd: jsProjectDir,
+    })
+  } catch (error) {
+    console.error("compiling the node-api entry point failed")
+    process.stdout.write(error.stdout)
+    process.exit(1)
+  }
+}
+
 function compileTypescript() {
   console.log("compiling typescript")
   try {
@@ -451,6 +471,10 @@ if (step === "all" || step === "compile-typescript") {
   generateJsReleaseInfo(gitHead)
   console.log("compiling typescript")
   compileTypescript()
+}
+
+if (step === "compile-node-api") {
+  compileNodeApi()
 }
 
 if (step === "all" || step === "transpile-cjs") {
