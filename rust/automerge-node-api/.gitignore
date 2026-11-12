@@ -5,3 +5,4 @@ index.d.ts
 
 # Build output of `napi build`
 *.node
+package-lock.json

@@ -2273,11 +2273,11 @@ pub mod error {
         ($name:ident, $inner:ty) => {
             #[derive(Debug, thiserror::Error)]
             #[error(transparent)]
-            pub struct $name(pub $inner);
+            pub struct $name(pub Box<$inner>);
 
             impl<T: Into<$inner>> From<T> for $name {
                 fn from(e: T) -> Self {
-                    Self(e.into())
+                    Self(Box::new(e.into()))
                 }
             }
 
@@ -2294,11 +2294,11 @@ pub mod error {
         ($name:ident, $inner:ty) => {
             #[derive(Debug, thiserror::Error)]
             #[error(transparent)]
-            pub struct $name(pub $inner);
+            pub struct $name(pub Box<$inner>);
 
             impl<T: Into<$inner>> From<T> for $name {
                 fn from(e: T) -> Self {
-                    Self(e.into())
+                    Self(Box::new(e.into()))
                 }
             }
 

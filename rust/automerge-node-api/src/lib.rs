@@ -30,7 +30,7 @@ use napi_derive::napi;
 mod error;
 mod export;
 mod interop;
-mod sync;
+pub mod sync;
 
 use error::*;
 use export::Exporter;

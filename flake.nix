@@ -353,6 +353,12 @@
           exec ./scripts/ci/js_tests
         '';
 
+        ci-node-api-tests = mk-ci-command "ci-node-api-tests" ([ci-nodejs ci-rust-toolchain] ++ wasm-ci-inputs) ''
+          export WASM_CARGO=wasm-cargo
+          export PUPPETEER_SKIP_DOWNLOAD=1
+          exec ./scripts/ci/node_api_tests
+        '';
+
         ci-node18-packaging-test = mk-ci-command "ci-node18-packaging-test" ([nodejs-18] ++ wasm-ci-inputs) ''
           export WASM_CARGO=wasm-cargo
           export PUPPETEER_SKIP_DOWNLOAD=1
@@ -390,6 +396,7 @@
             ci-build-test
             ci-wasm-tests
             ci-js-tests
+            ci-node-api-tests
             ci-node18-packaging-test
           ] ''
             ci-fmt
@@ -402,6 +409,7 @@
             ci-build-test
             ci-wasm-tests
             ci-js-tests
+            ci-node-api-tests
             ci-node18-packaging-test
           '';
 
@@ -420,6 +428,7 @@
             ci-fmt
             ci-js-tests
             ci-lint
+            ci-node-api-tests
             ci-node18-packaging-test
             ci-rust-docs
             ci-wasm-tests

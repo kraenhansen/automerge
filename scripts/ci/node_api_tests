@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -eoux pipefail
+
+# Builds the Node-API binding and runs
+# - its own tests (rust/automerge-node-api/*.test.ts)
+# - the JS package's tests (javascript/test) against it
+#
+# The JS package's types come from the wasm build, so the JS package is
+# built (including wasm) first, as in scripts/ci/js_tests.
+
+# see https://stackoverflow.com/questions/4774054/reliable-way-for-a-bash-script-to-get-the-full-path-to-itself
+THIS_SCRIPT="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+NODE_API_PROJECT=$THIS_SCRIPT/../../rust/automerge-node-api;
+JS_PROJECT=$THIS_SCRIPT/../../javascript;
+
+npm --prefix $NODE_API_PROJECT install
+npm --prefix $NODE_API_PROJECT run build
+npm --prefix $NODE_API_PROJECT test
+
+npm --prefix $JS_PROJECT install
+node $JS_PROJECT/scripts/build.mjs
+node $JS_PROJECT/scripts/build.mjs --step compile-node-api
+npm --prefix $JS_PROJECT run test:node-api
